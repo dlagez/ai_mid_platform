@@ -15,4 +15,4 @@ redis_data/
 minio_data/
 backend/storage/
 
-.claude
+/.claude
