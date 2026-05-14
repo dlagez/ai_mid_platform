@@ -56,3 +56,52 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+.openkb-output {
+  margin-top: 16px;
+  min-height: 88px;
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.openkb-result-block {
+  margin-top: 16px;
+}
+
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 220px;
+  max-height: 420px;
+  margin-bottom: 16px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid #e8edf3;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.chat-message {
+  max-width: 92%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid #edf1f5;
+}
+
+.chat-message-user {
+  align-self: flex-end;
+}
+
+.chat-message-assistant {
+  align-self: flex-start;
+}
+
+.chat-message .ant-typography {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

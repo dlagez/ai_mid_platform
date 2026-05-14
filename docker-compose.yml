@@ -12,6 +12,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
       BAILIAN_API_KEY: ${BAILIAN_API_KEY:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     ports:
       - "8000:8000"
@@ -21,6 +22,7 @@ services:
       - minio
     volumes:
       - ./backend:/app
+      - openkb_data:/app/storage/openkb
 
   celery_worker:
     build:
@@ -36,6 +38,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
       BAILIAN_API_KEY: ${BAILIAN_API_KEY:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     depends_on:
       - redis
@@ -43,6 +46,7 @@ services:
       - minio
     volumes:
       - ./backend:/app
+      - openkb_data:/app/storage/openkb
 
   redis:
     image: redis:7-alpine
@@ -96,3 +100,4 @@ volumes:
   redis_data:
   minio_data:
   frontend_node_modules:
+  openkb_data:

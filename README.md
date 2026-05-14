@@ -1,6 +1,6 @@
 # AI Mid Platform
 
-A full-stack AI mid-platform skeleton with React, Vite, Refine, FastAPI, LiteLLM as a core model module, Celery, PostgreSQL, Redis, and MinIO.
+A full-stack AI mid-platform skeleton with React, Vite, Refine, FastAPI, LiteLLM as a core model module, OpenKB as the RAG adapter, Celery, PostgreSQL, Redis, and MinIO.
 
 ## Local Development
 
@@ -39,6 +39,7 @@ Demo users:
 |   |   |       `-- tasks.py
 |   |   |-- adapters
 |   |   |   |-- base_adapter.py
+|   |   |   `-- openkb_adapter.py
 |   |   |-- core
 |   |   |   |-- __init__.py
 |   |   |   `-- litellm_client.py
@@ -48,6 +49,7 @@ Demo users:
 |   |   |   `-- session.py
 |   |   |-- main.py
 |   |   |-- services
+|   |   |   |-- knowledge_service.py
 |   |   |   |-- model_service.py
 |   |   |   `-- task_service.py
 |   |   |-- utils
@@ -95,7 +97,10 @@ Demo users:
 
 - LiteLLM is a core backend module at `backend/app/core/litellm_client.py`.
 - LiteLLM core configuration is stored in `backend/configs/litellm.yaml`.
+- OpenKB is integrated through `backend/app/adapters/openkb_adapter.py` using `openkb==0.1.3` Python APIs.
+- OpenKB API endpoints are `POST /api/v1/knowledge/query`, `POST /api/v1/knowledge/chat`, `POST /api/v1/knowledge/add`, `GET /api/v1/knowledge/list`, and `GET /api/v1/knowledge/status`.
+- OpenKB KB data is persisted under `storage/openkb` in local backend runs and `openkb_data` in Docker Compose.
 - Refine JWT auth is implemented in `frontend/src/auth/authProvider.ts`.
 - Backend RBAC is enforced through `require_permission` in `backend/app/utils/jwt.py`.
 - Celery task endpoints are in `backend/app/api/v1/tasks.py`.
-- RAG endpoints are placeholders in `backend/app/api/v1/knowledge.py` for a future vector store/index adapter.
+- Set `LLM_API_KEY` or provider-specific keys such as `OPENAI_API_KEY` in `.env` before calling OpenKB query/chat APIs.

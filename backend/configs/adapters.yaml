@@ -1,3 +1,10 @@
+openkb:
+  kb_root: storage/openkb
+  default_kb: default
+  model: gpt-5.4-mini
+  language: en
+  pageindex_threshold: 20
+  llm_api_key: null
 rag:
   provider: placeholder
   index_bucket: rag-indexes

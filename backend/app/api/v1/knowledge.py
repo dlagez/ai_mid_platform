@@ -1,40 +1,120 @@
-from typing import Annotated
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel
 
+from app.services.knowledge_service import KnowledgeService, get_knowledge_service
+from app.utils.exceptions import PlatformError
 from app.utils.jwt import CurrentUser, require_permission
 
 router = APIRouter()
 
 
 class KnowledgeQueryRequest(BaseModel):
-    collection: str
-    query: str
-    top_k: int = 5
+    kb_name: str | None = None
+    question: str
+    save: bool = False
 
 
 class KnowledgeQueryResponse(BaseModel):
-    collection: str
-    matches: list[dict]
+    kb_name: str
+    question: str
+    answer: str
+    saved_path: str | None = None
 
 
-@router.post("/documents")
-async def upload_document(
-    collection: str,
-    file: UploadFile,
-    _: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
-) -> dict[str, str]:
-    return {
-        "collection": collection,
-        "filename": file.filename or "document",
-        "status": "queued_for_indexing",
-    }
+class KnowledgeChatRequest(BaseModel):
+    kb_name: str | None = None
+    message: str
+    session_id: str | None = None
+
+
+class KnowledgeChatResponse(BaseModel):
+    kb_name: str
+    session_id: str
+    message: str
+    answer: str
+    turn_count: int
+
+
+class KnowledgeAddResponse(BaseModel):
+    kb_name: str
+    added: list[str]
+    skipped: list[str]
+
+
+class KnowledgeListResponse(BaseModel):
+    kb_name: str
+    documents: list[dict[str, Any]]
+    summaries: list[str]
+    concepts: list[str]
+    reports: list[str]
+
+
+class KnowledgeStatusResponse(BaseModel):
+    kb_name: str
+    kb_dir: str
+    model: str
+    language: str
+    directories: dict[str, int]
+    total_indexed: int
+    last_compile: str | None = None
+    last_lint: str | None = None
 
 
 @router.post("/query", response_model=KnowledgeQueryResponse)
 async def query_knowledge(
     payload: KnowledgeQueryRequest,
     _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    service: Annotated[KnowledgeService, Depends(get_knowledge_service)],
 ) -> KnowledgeQueryResponse:
-    return KnowledgeQueryResponse(collection=payload.collection, matches=[])
+    return KnowledgeQueryResponse(**await service.query(payload.model_dump()))
+
+
+@router.post("/chat", response_model=KnowledgeChatResponse)
+async def chat_knowledge(
+    payload: KnowledgeChatRequest,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    service: Annotated[KnowledgeService, Depends(get_knowledge_service)],
+) -> KnowledgeChatResponse:
+    return KnowledgeChatResponse(**await service.chat(payload.model_dump()))
+
+
+@router.post("/add", response_model=KnowledgeAddResponse)
+async def add_knowledge(
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
+    service: Annotated[KnowledgeService, Depends(get_knowledge_service)],
+    kb_name: Annotated[str | None, Form()] = None,
+    path: Annotated[str | None, Form()] = None,
+    file: Annotated[UploadFile | None, File()] = None,
+) -> KnowledgeAddResponse:
+    if file is not None:
+        destination = service.save_upload(
+            filename=file.filename or "document",
+            content=await file.read(),
+            kb_name=kb_name,
+        )
+        return KnowledgeAddResponse(**await service.add(path=str(destination), kb_name=kb_name))
+
+    if path:
+        return KnowledgeAddResponse(**await service.add(path=path, kb_name=kb_name))
+
+    raise PlatformError("Provide either multipart file or form path for OpenKB add", status_code=400)
+
+
+@router.get("/list", response_model=KnowledgeListResponse)
+async def list_knowledge(
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    service: Annotated[KnowledgeService, Depends(get_knowledge_service)],
+    kb_name: str | None = None,
+) -> KnowledgeListResponse:
+    return KnowledgeListResponse(**service.list(kb_name=kb_name))
+
+
+@router.get("/status", response_model=KnowledgeStatusResponse)
+async def status_knowledge(
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    service: Annotated[KnowledgeService, Depends(get_knowledge_service)],
+    kb_name: str | None = None,
+) -> KnowledgeStatusResponse:
+    return KnowledgeStatusResponse(**service.status(kb_name=kb_name))
