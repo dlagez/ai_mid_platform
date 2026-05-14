@@ -11,6 +11,8 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+      BAILIAN_API_KEY: ${BAILIAN_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     ports:
       - "8000:8000"
     depends_on:
@@ -33,6 +35,8 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+      BAILIAN_API_KEY: ${BAILIAN_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     depends_on:
       - redis
       - postgres

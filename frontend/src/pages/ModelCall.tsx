@@ -47,7 +47,10 @@ export const ModelCallPage = () => {
               options={[
                 { label: "gpt-4o-mini", value: "gpt-4o-mini" },
                 { label: "gpt-4o", value: "gpt-4o" },
-                { label: "claude-3-5-sonnet", value: "claude-3-5-sonnet" },
+                { label: "qwen-max (阿里百炼)", value: "qwen-max" },
+                { label: "qwen-plus (阿里百炼)", value: "qwen-plus" },
+                { label: "qwen-turbo (阿里百炼)", value: "qwen-turbo" },
+                { label: "qwen2.5-72b-instruct (阿里百炼)", value: "qwen2.5-72b-instruct" },
               ]}
             />
           </Form.Item>
