@@ -2,10 +2,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import auth, knowledge, models, tasks
+from app.services.knowledge_service import KnowledgeService
 from app.utils.exceptions import register_exception_handlers
+from app.utils.logging import configure_logging
 
 
 def create_app() -> FastAPI:
+    configure_logging()
     app = FastAPI(title="AI Mid Platform API", version="0.1.0")
 
     app.add_middleware(
@@ -22,6 +25,11 @@ def create_app() -> FastAPI:
     app.include_router(knowledge.router, prefix="/api/v1/knowledge", tags=["knowledge"])
 
     register_exception_handlers(app)
+
+    @app.on_event("startup")
+    async def initialize_default_openkb() -> None:
+        KnowledgeService().initialize_default_kb()
+
     return app
 
 

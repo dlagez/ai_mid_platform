@@ -1,11 +1,33 @@
+from __future__ import annotations
+
 import asyncio
 import json
 import os
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from app.adapters.base_adapter import BaseAdapter
 from app.utils.exceptions import PlatformError
+
+
+DEFAULT_AGENTS_MD = """# Wiki Schema
+
+## Directory Structure
+
+- sources/ - Document content. Short docs as .md, long docs as .json.
+- sources/images/ - Extracted images from documents, referenced by sources.
+- summaries/ - One per source document.
+- concepts/ - Cross-document topic synthesis.
+- explorations/ - Saved query results.
+- reports/ - Lint health check reports.
+
+## Special Files
+
+- index.md - Content catalog.
+- log.md - Chronological append-only operation log.
+"""
 
 
 class OpenKBAdapter(BaseAdapter):
@@ -200,18 +222,16 @@ class OpenKBAdapter(BaseAdapter):
             for env_var in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"):
                 os.environ.setdefault(env_var, os.environ["LLM_API_KEY"])
 
-    def _ensure_kb(self, kb_name: str | None = None) -> Path:
-        from openkb.config import save_config
-        from openkb.schema import AGENTS_MD
+    def initialize_default_kb(self) -> Path:
+        return self._ensure_kb(self.default_kb)
 
+    def _ensure_kb(self, kb_name: str | None = None) -> Path:
         name = kb_name or self.default_kb
         if not name.replace("_", "-").replace("-", "").isalnum():
             raise PlatformError("KB name may only contain letters, numbers, hyphens, and underscores", 400)
 
         kb_dir = (self.kb_root / name).resolve()
         openkb_dir = kb_dir / ".openkb"
-        if openkb_dir.exists():
-            return kb_dir
 
         (kb_dir / "raw").mkdir(parents=True, exist_ok=True)
         (kb_dir / "wiki" / "sources" / "images").mkdir(parents=True, exist_ok=True)
@@ -221,13 +241,13 @@ class OpenKBAdapter(BaseAdapter):
         (kb_dir / "wiki" / "reports").mkdir(parents=True, exist_ok=True)
         openkb_dir.mkdir(parents=True, exist_ok=True)
 
-        (kb_dir / "wiki" / "AGENTS.md").write_text(AGENTS_MD, encoding="utf-8")
-        (kb_dir / "wiki" / "index.md").write_text(
+        self._write_file_if_missing(kb_dir / "wiki" / "AGENTS.md", DEFAULT_AGENTS_MD)
+        self._write_file_if_missing(
+            kb_dir / "wiki" / "index.md",
             "# Knowledge Base Index\n\n## Documents\n\n## Concepts\n\n## Explorations\n",
-            encoding="utf-8",
         )
-        (kb_dir / "wiki" / "log.md").write_text("# Operations Log\n\n", encoding="utf-8")
-        save_config(
+        self._write_file_if_missing(kb_dir / "wiki" / "log.md", "# Operations Log\n\n")
+        self._write_yaml_if_missing(
             openkb_dir / "config.yaml",
             {
                 "model": self.model,
@@ -235,8 +255,16 @@ class OpenKBAdapter(BaseAdapter):
                 "pageindex_threshold": self.pageindex_threshold,
             },
         )
-        (openkb_dir / "hashes.json").write_text("{}", encoding="utf-8")
+        self._write_file_if_missing(openkb_dir / "hashes.json", json.dumps({}))
         return kb_dir
+
+    def _write_file_if_missing(self, path: Path, content: str) -> None:
+        if not path.exists():
+            path.write_text(content, encoding="utf-8")
+
+    def _write_yaml_if_missing(self, path: Path, content: dict[str, Any]) -> None:
+        if not path.exists():
+            path.write_text(yaml.safe_dump(content, allow_unicode=True, sort_keys=True), encoding="utf-8")
 
     def _read_hashes(self, kb_dir: Path) -> dict[str, dict[str, Any]]:
         hashes_file = kb_dir / ".openkb" / "hashes.json"

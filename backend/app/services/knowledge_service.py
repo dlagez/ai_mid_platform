@@ -14,6 +14,9 @@ class KnowledgeService:
         openkb_config = adapter_config.get("openkb", {})
         self.openkb = OpenKBAdapter(name="openkb", config=openkb_config)
 
+    def initialize_default_kb(self) -> Path:
+        return self.openkb.initialize_default_kb()
+
     async def query(self, payload: dict[str, Any]) -> dict[str, Any]:
         return await self.openkb.query(**payload)
 
