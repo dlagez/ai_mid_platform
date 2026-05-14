@@ -13,6 +13,11 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
       BAILIAN_API_KEY: ${BAILIAN_API_KEY:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}
+      LANGFUSE_TRACING_ENVIRONMENT: ${LANGFUSE_TRACING_ENVIRONMENT:-development}
+      LANGFUSE_TRACING_ENABLED: ${LANGFUSE_TRACING_ENABLED:-true}
     ports:
       - "8000:8000"
     depends_on:
@@ -38,6 +43,11 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
       BAILIAN_API_KEY: ${BAILIAN_API_KEY:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}
+      LANGFUSE_TRACING_ENVIRONMENT: ${LANGFUSE_TRACING_ENVIRONMENT:-development}
+      LANGFUSE_TRACING_ENABLED: ${LANGFUSE_TRACING_ENABLED:-true}
     depends_on:
       - redis
       - postgres

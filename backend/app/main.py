@@ -4,11 +4,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1 import auth, knowledge, models, tasks
 from app.services.knowledge_service import KnowledgeService
 from app.utils.exceptions import register_exception_handlers
+from app.utils.langfuse import configure_langfuse_env, flush_langfuse
 from app.utils.logging import configure_logging
 
 
 def create_app() -> FastAPI:
     configure_logging()
+    configure_langfuse_env()
     app = FastAPI(title="AI Mid Platform API", version="0.1.0")
 
     app.add_middleware(
@@ -29,6 +31,10 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     async def initialize_default_openkb() -> None:
         KnowledgeService().initialize_default_kb()
+
+    @app.on_event("shutdown")
+    async def shutdown_langfuse() -> None:
+        flush_langfuse()
 
     return app
 

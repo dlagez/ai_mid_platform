@@ -55,6 +55,7 @@ Demo users:
 |   |   |-- utils
 |   |   |   |-- exceptions.py
 |   |   |   |-- jwt.py
+|   |   |   |-- langfuse.py
 |   |   |   `-- logging.py
 |   |   `-- workers
 |   |       `-- celery_worker.py
@@ -101,6 +102,7 @@ Demo users:
 - OpenKB API endpoints are `POST /api/v1/knowledge/query`, `POST /api/v1/knowledge/chat`, `POST /api/v1/knowledge/add`, `GET /api/v1/knowledge/list`, and `GET /api/v1/knowledge/status`.
 - OpenKB KB data is persisted under `storage/openkb` in local backend runs and `openkb_data` in Docker Compose.
 - The configured default KB is initialized automatically when the FastAPI backend starts.
+- Langfuse Cloud tracing is optional. Fill `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` in `.env`; OpenKB query/chat calls are recorded with user, KB, session, model, input, and output metadata. Use `LANGFUSE_BASE_URL=https://us.cloud.langfuse.com` if your Langfuse project is in the US region.
 - Refine JWT auth is implemented in `frontend/src/auth/authProvider.ts`.
 - Backend RBAC is enforced through `require_permission` in `backend/app/utils/jwt.py`.
 - Celery task endpoints are in `backend/app/api/v1/tasks.py`.

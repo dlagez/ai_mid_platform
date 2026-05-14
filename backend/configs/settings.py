@@ -21,5 +21,11 @@ class Settings(BaseSettings):
     adapter_config_path: str = "configs/adapters.yaml"
     litellm_config_path: str = "configs/litellm.yaml"
 
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+    langfuse_base_url: str = "https://cloud.langfuse.com"
+    langfuse_tracing_environment: str = "development"
+    langfuse_tracing_enabled: bool = True
+
 
 settings = Settings()
