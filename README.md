@@ -1,6 +1,6 @@
 # AI Mid Platform
 
-A full-stack AI mid-platform skeleton with React, Vite, Refine, FastAPI, LiteLLM adapter hooks, Celery, PostgreSQL, Redis, and MinIO.
+A full-stack AI mid-platform skeleton with React, Vite, Refine, FastAPI, LiteLLM as a core model module, Celery, PostgreSQL, Redis, and MinIO.
 
 ## Local Development
 
@@ -39,7 +39,9 @@ Demo users:
 |   |   |       `-- tasks.py
 |   |   |-- adapters
 |   |   |   |-- base_adapter.py
-|   |   |   `-- litellm_adapter.py
+|   |   |-- core
+|   |   |   |-- __init__.py
+|   |   |   `-- litellm_client.py
 |   |   |-- db
 |   |   |   |-- base.py
 |   |   |   |-- models.py
@@ -56,6 +58,7 @@ Demo users:
 |   |       `-- celery_worker.py
 |   |-- configs
 |   |   |-- adapters.yaml
+|   |   |-- litellm.yaml
 |   |   `-- settings.py
 |   `-- requirements.txt
 |-- docker-compose.yml
@@ -90,7 +93,8 @@ Demo users:
 
 ## Notes
 
-- LiteLLM is called through `backend/app/adapters/litellm_adapter.py`.
+- LiteLLM is a core backend module at `backend/app/core/litellm_client.py`.
+- LiteLLM core configuration is stored in `backend/configs/litellm.yaml`.
 - Refine JWT auth is implemented in `frontend/src/auth/authProvider.ts`.
 - Backend RBAC is enforced through `require_permission` in `backend/app/utils/jwt.py`.
 - Celery task endpoints are in `backend/app/api/v1/tasks.py`.

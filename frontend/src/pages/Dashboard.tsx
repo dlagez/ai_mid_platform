@@ -25,7 +25,7 @@ export const DashboardPage = () => {
         <Col xs={24} lg={12}>
           <Card title="Platform Services">
             <Typography.Paragraph>
-              FastAPI, Celery, PostgreSQL, Redis, MinIO, LiteLLM adapter, and RAG adapter entry points
+              FastAPI, Celery, PostgreSQL, Redis, MinIO, LiteLLM core module, and RAG adapter entry points
               are wired for local development.
             </Typography.Paragraph>
           </Card>

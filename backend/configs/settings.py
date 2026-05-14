@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     celery_result_backend: str = "redis://redis:6379/1"
 
     adapter_config_path: str = "configs/adapters.yaml"
+    litellm_config_path: str = "configs/litellm.yaml"
 
 
 settings = Settings()

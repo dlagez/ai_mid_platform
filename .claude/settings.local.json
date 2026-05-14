@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install *)",
+      "Bash(curl -o /dev/null -s -w '%{time_total}s\\\\n' \"https://pypi.tuna.tsinghua.edu.cn/simple/fastapi/\")",
+      "Bash(curl -o /dev/null -s -w '%{time_total}s\\\\n' \"https://mirrors.aliyun.com/pypi/simple/fastapi/\")",
+      "Bash(curl -o /dev/null -s -w '%{time_total}s\\\\n' \"https://pypi.mirrors.ustc.edu.cn/simple/fastapi/\")",
+      "Bash(curl -o /dev/null -s -w '%{time_total}s\\\\n' \"https://mirrors.cloud.tencent.com/pypi/simple/fastapi/\")"
+    ]
+  }
+}

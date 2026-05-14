@@ -6,7 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install -i https://pypi.mirrors.ustc.edu.cn/simple/ --no-cache-dir -r requirements.txt
 
 COPY . .
 

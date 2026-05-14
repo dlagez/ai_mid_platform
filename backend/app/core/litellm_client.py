@@ -1,15 +1,17 @@
 from typing import Any
 
-from app.adapters.base_adapter import BaseAdapter
 
+class LiteLLMClient:
+    def __init__(self, config: dict[str, Any]) -> None:
+        self.config = config
+        self.provider = "litellm"
 
-class LiteLLMAdapter(BaseAdapter):
-    async def call(self, payload: dict[str, Any]) -> dict[str, Any]:
+    async def completion(self, payload: dict[str, Any]) -> dict[str, Any]:
         try:
             from litellm import acompletion
         except ImportError:
             return {
-                "provider": self.name,
+                "provider": self.provider,
                 "model": payload["model"],
                 "output": {
                     "content": "LiteLLM is not installed in this environment. Install backend requirements to enable calls.",
@@ -26,4 +28,4 @@ class LiteLLMAdapter(BaseAdapter):
         )
         message: Any = response.choices[0].message
         content = message.get("content") if isinstance(message, dict) else message.content
-        return {"provider": self.name, "model": payload["model"], "output": {"content": content}}
+        return {"provider": self.provider, "model": payload["model"], "output": {"content": content}}

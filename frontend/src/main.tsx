@@ -3,7 +3,6 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter, Outlet, Route, Routes } from "react-router-dom";
 import { Refine, Authenticated } from "@refinedev/core";
 import {
-  AuthPage,
   ErrorComponent,
   RefineThemes,
   ThemedLayoutV2,
@@ -29,6 +28,7 @@ import "./styles.css";
 import { authProvider } from "./auth/authProvider";
 import { AppHeader } from "./components/AppHeader";
 import { DashboardPage } from "./pages/Dashboard";
+import { LoginPage } from "./pages/LoginPage";
 import { ModelCallPage } from "./pages/ModelCall";
 import { TaskListPage } from "./pages/TaskList";
 
@@ -95,7 +95,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                   </Authenticated>
                 }
               >
-                <Route path="/login" element={<AuthPage type="login" title="AI Mid Platform" />} />
+                <Route path="/login" element={<LoginPage />} />
               </Route>
             </Routes>
             <UnsavedChangesNotifier />
