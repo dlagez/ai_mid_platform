@@ -30,6 +30,29 @@ export type KnowledgeAddResult = {
   skipped: string[];
 };
 
+export type KnowledgeRawFile = {
+  name: string;
+  relative_path: string;
+  path: string;
+  size: number;
+  modified_at: string;
+  supported: boolean;
+  indexed: boolean;
+};
+
+export type KnowledgeRawFiles = {
+  kb_name: string;
+  raw_dir: string;
+  files: KnowledgeRawFile[];
+};
+
+export type KnowledgeUploadResult = {
+  kb_name: string;
+  filename: string;
+  path: string;
+  status: string;
+};
+
 export type KnowledgeQueryResult = {
   kb_name: string;
   question: string;
@@ -91,6 +114,13 @@ export const listKnowledge = async (kbName?: string) => {
   return data;
 };
 
+export const listKnowledgeFiles = async (kbName?: string) => {
+  const { data } = await apiClient.get<KnowledgeRawFiles>("/knowledge/files", {
+    params: { kb_name: kbName || undefined },
+  });
+  return data;
+};
+
 export const addKnowledgePath = async (payload: { kbName?: string; path: string }) => {
   const form = new FormData();
   if (payload.kbName) {
@@ -108,6 +138,16 @@ export const addKnowledgeFile = async (payload: { kbName?: string; file: File })
   }
   form.append("file", payload.file);
   const { data } = await apiClient.post<KnowledgeAddResult>("/knowledge/add", form);
+  return data;
+};
+
+export const uploadKnowledgeFile = async (payload: { kbName?: string; file: File }) => {
+  const form = new FormData();
+  if (payload.kbName) {
+    form.append("kb_name", payload.kbName);
+  }
+  form.append("file", payload.file);
+  const { data } = await apiClient.post<KnowledgeUploadResult>("/knowledge/upload", form);
   return data;
 };
 

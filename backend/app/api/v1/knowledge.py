@@ -51,6 +51,19 @@ class KnowledgeListResponse(BaseModel):
     reports: list[str]
 
 
+class KnowledgeRawFilesResponse(BaseModel):
+    kb_name: str
+    raw_dir: str
+    files: list[dict[str, Any]]
+
+
+class KnowledgeUploadResponse(BaseModel):
+    kb_name: str
+    filename: str
+    path: str
+    status: str
+
+
 class KnowledgeStatusResponse(BaseModel):
     kb_name: str
     kb_dir: str
@@ -124,19 +137,25 @@ async def help_knowledge(
 @router.post("/query", response_model=KnowledgeQueryResponse)
 async def query_knowledge(
     payload: KnowledgeQueryRequest,
-    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    current_user: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
     service: Annotated[KnowledgeService, Depends(get_knowledge_service)],
 ) -> KnowledgeQueryResponse:
-    return KnowledgeQueryResponse(**await service.query(payload.model_dump()))
+    data = payload.model_dump()
+    data["user_id"] = current_user.username
+    data["user_role"] = current_user.role
+    return KnowledgeQueryResponse(**await service.query(data))
 
 
 @router.post("/chat", response_model=KnowledgeChatResponse)
 async def chat_knowledge(
     payload: KnowledgeChatRequest,
-    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    current_user: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
     service: Annotated[KnowledgeService, Depends(get_knowledge_service)],
 ) -> KnowledgeChatResponse:
-    return KnowledgeChatResponse(**await service.chat(payload.model_dump()))
+    data = payload.model_dump()
+    data["user_id"] = current_user.username
+    data["user_role"] = current_user.role
+    return KnowledgeChatResponse(**await service.chat(data))
 
 
 @router.post("/add", response_model=KnowledgeAddResponse)
@@ -161,6 +180,26 @@ async def add_knowledge(
     raise PlatformError("Provide either multipart file or form path for OpenKB add", status_code=400)
 
 
+@router.post("/upload", response_model=KnowledgeUploadResponse)
+async def upload_knowledge_file(
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
+    service: Annotated[KnowledgeService, Depends(get_knowledge_service)],
+    file: Annotated[UploadFile, File()],
+    kb_name: Annotated[str | None, Form()] = None,
+) -> KnowledgeUploadResponse:
+    destination = service.save_upload(
+        filename=file.filename or "document",
+        content=await file.read(),
+        kb_name=kb_name,
+    )
+    return KnowledgeUploadResponse(
+        kb_name=destination.parent.parent.name,
+        filename=destination.name,
+        path=str(destination),
+        status="uploaded",
+    )
+
+
 @router.get("/list", response_model=KnowledgeListResponse)
 async def list_knowledge(
     _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
@@ -168,6 +207,15 @@ async def list_knowledge(
     kb_name: str | None = None,
 ) -> KnowledgeListResponse:
     return KnowledgeListResponse(**service.list(kb_name=kb_name))
+
+
+@router.get("/files", response_model=KnowledgeRawFilesResponse)
+async def list_knowledge_raw_files(
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    service: Annotated[KnowledgeService, Depends(get_knowledge_service)],
+    kb_name: str | None = None,
+) -> KnowledgeRawFilesResponse:
+    return KnowledgeRawFilesResponse(**service.raw_files(kb_name=kb_name))
 
 
 @router.get("/status", response_model=KnowledgeStatusResponse)

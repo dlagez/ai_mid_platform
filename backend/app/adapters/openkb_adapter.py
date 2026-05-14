@@ -10,6 +10,7 @@ import yaml
 
 from app.adapters.base_adapter import BaseAdapter
 from app.utils.exceptions import PlatformError
+from app.utils.langfuse import langfuse_observation, update_langfuse_observation
 
 
 DEFAULT_AGENTS_MD = """# Wiki Schema
@@ -78,22 +79,52 @@ class OpenKBAdapter(BaseAdapter):
     def help(self) -> dict[str, Any]:
         return {"commands": OPENKB_COMMANDS}
 
-    async def query(self, question: str, kb_name: str | None = None, save: bool = False) -> dict[str, Any]:
+    async def query(
+        self,
+        question: str,
+        kb_name: str | None = None,
+        save: bool = False,
+        user_id: str | None = None,
+        user_role: str | None = None,
+    ) -> dict[str, Any]:
         from openkb.agent.query import run_query
         from openkb.config import load_config
         from openkb.log import append_log
 
         kb_dir = self._ensure_kb(kb_name)
         config = load_config(kb_dir / ".openkb" / "config.yaml")
-        answer = await run_query(
-            question=question,
-            kb_dir=kb_dir,
-            model=config.get("model", self.model),
-            stream=False,
-            raw=False,
-        )
-        append_log(kb_dir / "wiki", "query", question)
-        saved_path = self._save_query_result(kb_dir, question, answer) if save else None
+        model = config.get("model", self.model)
+        metadata = {
+            "operation": "query",
+            "kb_name": kb_dir.name,
+            "kb_dir": str(kb_dir),
+            "model": model,
+            "language": config.get("language", self.language),
+            "save": save,
+            "user_role": user_role,
+        }
+        with langfuse_observation(
+            name="openkb.query",
+            input_data={"question": question},
+            metadata=metadata,
+            user_id=user_id,
+            session_id=f"openkb:{kb_dir.name}:{user_id or 'anonymous'}",
+            tags=["openkb", "query"],
+            model=model,
+        ) as observation:
+            answer = await run_query(
+                question=question,
+                kb_dir=kb_dir,
+                model=model,
+                stream=False,
+                raw=False,
+            )
+            append_log(kb_dir / "wiki", "query", question)
+            saved_path = self._save_query_result(kb_dir, question, answer) if save else None
+            update_langfuse_observation(
+                observation,
+                output={"answer": answer, "saved_path": str(saved_path) if saved_path else None},
+            )
         return {
             "kb_name": kb_dir.name,
             "question": question,
@@ -106,6 +137,8 @@ class OpenKBAdapter(BaseAdapter):
         message: str,
         kb_name: str | None = None,
         session_id: str | None = None,
+        user_id: str | None = None,
+        user_role: str | None = None,
     ) -> dict[str, Any]:
         from agents import Runner
         from openkb.agent.chat_session import ChatSession, load_session, resolve_session_id
@@ -127,14 +160,39 @@ class OpenKBAdapter(BaseAdapter):
             session = ChatSession.new(kb_dir, model, language)
 
         agent = build_query_agent(str(kb_dir / "wiki"), session.model, language=session.language)
-        result = await Runner.run(
-            agent,
-            session.history + [{"role": "user", "content": message}],
-            max_turns=MAX_TURNS,
-        )
-        answer = result.final_output or ""
-        session.record_turn(message, answer, result.to_input_list())
-        append_log(kb_dir / "wiki", "query", message)
+        metadata = {
+            "operation": "chat",
+            "kb_name": kb_dir.name,
+            "kb_dir": str(kb_dir),
+            "model": session.model,
+            "language": session.language,
+            "openkb_session_id": session.id,
+            "previous_session_id": session_id,
+            "turn_count_before": session.turn_count,
+            "user_role": user_role,
+        }
+        with langfuse_observation(
+            name="openkb.chat",
+            input_data={"message": message, "history_turns": session.turn_count},
+            metadata=metadata,
+            user_id=user_id,
+            session_id=session.id,
+            tags=["openkb", "chat"],
+            as_type="generation",
+            model=session.model,
+        ) as observation:
+            result = await Runner.run(
+                agent,
+                session.history + [{"role": "user", "content": message}],
+                max_turns=MAX_TURNS,
+            )
+            answer = result.final_output or ""
+            session.record_turn(message, answer, result.to_input_list())
+            append_log(kb_dir / "wiki", "query", message)
+            update_langfuse_observation(
+                observation,
+                output={"answer": answer, "turn_count": session.turn_count},
+            )
         return {
             "kb_name": kb_dir.name,
             "session_id": session.id,
@@ -209,6 +267,46 @@ class OpenKBAdapter(BaseAdapter):
             "concepts": self._markdown_stems(kb_dir / "wiki" / "concepts"),
             "reports": self._markdown_names(kb_dir / "wiki" / "reports"),
         }
+
+    def raw_files(self, kb_name: str | None = None) -> dict[str, Any]:
+        try:
+            from openkb.cli import SUPPORTED_EXTENSIONS
+        except ImportError:
+            SUPPORTED_EXTENSIONS = {
+                ".pdf",
+                ".md",
+                ".markdown",
+                ".docx",
+                ".pptx",
+                ".xlsx",
+                ".html",
+                ".htm",
+                ".txt",
+                ".csv",
+            }
+
+        kb_dir = self._ensure_kb(kb_name)
+        raw_dir = kb_dir / "raw"
+        hashes = self._read_hashes(kb_dir)
+        indexed_names = {str(meta.get("name")) for meta in hashes.values() if meta.get("name")}
+        files = []
+        if raw_dir.exists():
+            for item in sorted(raw_dir.rglob("*")):
+                if not item.is_file():
+                    continue
+                relative_path = item.relative_to(raw_dir).as_posix()
+                files.append(
+                    {
+                        "name": item.name,
+                        "relative_path": relative_path,
+                        "path": str(item),
+                        "size": item.stat().st_size,
+                        "modified_at": self._mtime(item),
+                        "supported": item.suffix.lower() in SUPPORTED_EXTENSIONS,
+                        "indexed": item.name in indexed_names,
+                    }
+                )
+        return {"kb_name": kb_dir.name, "raw_dir": str(raw_dir), "files": files}
 
     def status(self, kb_name: str | None = None) -> dict[str, Any]:
         kb_dir = self._ensure_kb(kb_name)
@@ -393,7 +491,12 @@ class OpenKBAdapter(BaseAdapter):
         import datetime
 
         newest = max(files, key=lambda item: item.stat().st_mtime)
-        return datetime.datetime.fromtimestamp(newest.stat().st_mtime).isoformat()
+        return self._mtime(newest)
+
+    def _mtime(self, path: Path) -> str:
+        import datetime
+
+        return datetime.datetime.fromtimestamp(path.stat().st_mtime).isoformat()
 
     def _display_type(self, raw_type: str) -> str:
         if raw_type == "long_pdf":

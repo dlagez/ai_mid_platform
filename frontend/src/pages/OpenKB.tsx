@@ -17,6 +17,7 @@ import {
   message,
 } from "antd";
 import type { UploadFile } from "antd";
+import type { Key } from "react";
 import {
   CloudUploadOutlined,
   CommentOutlined,
@@ -29,7 +30,6 @@ import {
   SendOutlined,
 } from "@ant-design/icons";
 import {
-  addKnowledgeFile,
   addKnowledgePath,
   chatKnowledge,
   clearKnowledgeSession,
@@ -37,14 +37,18 @@ import {
   getKnowledgeStatus,
   helpKnowledge,
   lintKnowledge,
+  listKnowledgeFiles,
   listKnowledge,
   queryKnowledge,
   saveKnowledgeTranscript,
+  uploadKnowledgeFile,
   type KnowledgeAddResult,
   type KnowledgeChatResult,
   type KnowledgeCommand,
   type KnowledgeList,
   type KnowledgeQueryResult,
+  type KnowledgeRawFile,
+  type KnowledgeRawFiles,
   type KnowledgeStatus,
 } from "../services/knowledgeService";
 
@@ -87,6 +91,8 @@ export const OpenKBPage = () => {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [commands, setCommands] = useState<KnowledgeCommand[]>([]);
   const [commandOutput, setCommandOutput] = useState<string>("Command output will appear here.");
+  const [rawFiles, setRawFiles] = useState<KnowledgeRawFiles | null>(null);
+  const [selectedRawFileKeys, setSelectedRawFileKeys] = useState<Key[]>([]);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [loading, setLoading] = useState({
     status: false,
@@ -111,12 +117,17 @@ export const OpenKBPage = () => {
   const refreshKnowledge = async () => {
     setLoading((current) => ({ ...current, status: true }));
     try {
-      const [nextStatus, nextList] = await Promise.all([
+      const [nextStatus, nextList, nextFiles] = await Promise.all([
         getKnowledgeStatus(activeKbName),
         listKnowledge(activeKbName),
+        listKnowledgeFiles(activeKbName),
       ]);
       setStatus(nextStatus);
       setKnowledgeList(nextList);
+      setRawFiles(nextFiles);
+      setSelectedRawFileKeys((current) =>
+        current.filter((key) => nextFiles.files.some((file) => file.path === key)),
+      );
     } catch (error) {
       message.error("Unable to load OpenKB status.");
     } finally {
@@ -129,21 +140,30 @@ export const OpenKBPage = () => {
     void handleHelp();
   }, []);
 
-  const handleAddPath = async (values: { path: string }) => {
+  const handleAddSelected = async () => {
+    if (selectedRawFileKeys.length === 0) {
+      message.warning("Select one or more raw files first.");
+      return;
+    }
     setLoading((current) => ({ ...current, add: true }));
     try {
-      const result = await addKnowledgePath({ kbName: activeKbName, path: values.path });
-      setAddResult(result);
-      showAddResultMessage(result);
+      const combined: KnowledgeAddResult = { kb_name: activeKbName, added: [], skipped: [] };
+      for (const path of selectedRawFileKeys) {
+        const result = await addKnowledgePath({ kbName: activeKbName, path: String(path) });
+        combined.added.push(...result.added);
+        combined.skipped.push(...result.skipped);
+      }
+      setAddResult(combined);
+      showAddResultMessage(combined);
       await refreshKnowledge();
     } catch (error) {
-      message.error(getErrorStatus(error) === 401 ? "Session expired. Login again." : "OpenKB add by path failed.");
+      message.error(getErrorStatus(error) === 401 ? "Session expired. Login again." : "OpenKB add selected files failed.");
     } finally {
       setLoading((current) => ({ ...current, add: false }));
     }
   };
 
-  const handleAddFile = async () => {
+  const handleUploadFile = async () => {
     const originFile = fileList[0]?.originFileObj;
     if (!originFile) {
       message.warning("Select a file first.");
@@ -151,9 +171,8 @@ export const OpenKBPage = () => {
     }
     setLoading((current) => ({ ...current, add: true }));
     try {
-      const result = await addKnowledgeFile({ kbName: activeKbName, file: originFile });
-      setAddResult(result);
-      showAddResultMessage(result);
+      const result = await uploadKnowledgeFile({ kbName: activeKbName, file: originFile });
+      message.success(`Uploaded ${result.filename}.`);
       setFileList([]);
       await refreshKnowledge();
     } catch (error) {
@@ -368,17 +387,6 @@ export const OpenKBPage = () => {
         <Col xs={24} xl={10}>
           <Space direction="vertical" size={16} style={{ width: "100%" }}>
             <Card title="Add Documents">
-              <Form layout="vertical" onFinish={handleAddPath}>
-                <Form.Item name="path" label="Server path" rules={[{ required: true }]}>
-                  <Input placeholder="/app/storage/openkb/default/raw/report.pdf" />
-                </Form.Item>
-                <Button type="primary" htmlType="submit" loading={loading.add} icon={<FolderOpenOutlined />}>
-                  Add Path
-                </Button>
-              </Form>
-
-              <Divider />
-
               <Space direction="vertical" size={12} style={{ width: "100%" }}>
                 <Upload
                   beforeUpload={() => false}
@@ -388,10 +396,52 @@ export const OpenKBPage = () => {
                 >
                   <Button icon={<CloudUploadOutlined />}>Select File</Button>
                 </Upload>
-                <Button loading={loading.add} onClick={() => void handleAddFile()} icon={<CloudUploadOutlined />}>
-                  Upload And Add
+                <Button loading={loading.add} onClick={() => void handleUploadFile()} icon={<CloudUploadOutlined />}>
+                  Upload To Raw
                 </Button>
               </Space>
+
+              <Divider />
+
+              <Table<KnowledgeRawFile>
+                rowKey="path"
+                size="small"
+                dataSource={rawFiles?.files ?? []}
+                pagination={{ pageSize: 5 }}
+                rowSelection={{
+                  selectedRowKeys: selectedRawFileKeys,
+                  onChange: setSelectedRawFileKeys,
+                  getCheckboxProps: (record) => ({
+                    disabled: !record.supported,
+                  }),
+                }}
+                columns={[
+                  {
+                    title: "Raw File",
+                    dataIndex: "name",
+                    ellipsis: true,
+                  },
+                  {
+                    title: "State",
+                    width: 100,
+                    render: (_, row) => (
+                      <Space size={4} wrap>
+                        {!row.supported ? <Tag color="red">Unsupported</Tag> : null}
+                        {row.indexed ? <Tag color="green">Indexed</Tag> : <Tag>Raw</Tag>}
+                      </Space>
+                    ),
+                  },
+                ]}
+              />
+              <Button
+                type="primary"
+                loading={loading.add}
+                disabled={selectedRawFileKeys.length === 0}
+                onClick={() => void handleAddSelected()}
+                icon={<FolderOpenOutlined />}
+              >
+                Add Selected
+              </Button>
 
               {addResult ? (
                 <div className="openkb-result-block">

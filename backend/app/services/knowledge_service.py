@@ -32,6 +32,9 @@ class KnowledgeService:
     def list(self, kb_name: str | None = None) -> dict[str, Any]:
         return self.openkb.list(kb_name=kb_name)
 
+    def raw_files(self, kb_name: str | None = None) -> dict[str, Any]:
+        return self.openkb.raw_files(kb_name=kb_name)
+
     def status(self, kb_name: str | None = None) -> dict[str, Any]:
         return self.openkb.status(kb_name=kb_name)
 
