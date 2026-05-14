@@ -62,6 +62,65 @@ class KnowledgeStatusResponse(BaseModel):
     last_lint: str | None = None
 
 
+class KnowledgeCommandHelpResponse(BaseModel):
+    commands: list[dict[str, str]]
+
+
+class KnowledgeClearRequest(BaseModel):
+    kb_name: str | None = None
+    previous_session_id: str | None = None
+
+
+class KnowledgeClearResponse(BaseModel):
+    kb_name: str
+    previous_session_id: str | None = None
+    session_id: str
+    message: str
+
+
+class KnowledgeSaveRequest(BaseModel):
+    kb_name: str | None = None
+    session_id: str
+    name: str | None = None
+
+
+class KnowledgeSaveResponse(BaseModel):
+    kb_name: str
+    session_id: str
+    saved_path: str
+    message: str
+
+
+class KnowledgeLintRequest(BaseModel):
+    kb_name: str | None = None
+
+
+class KnowledgeLintResponse(BaseModel):
+    kb_name: str
+    report_path: str | None = None
+    message: str
+
+
+class KnowledgeExitRequest(BaseModel):
+    kb_name: str | None = None
+    session_id: str | None = None
+
+
+class KnowledgeExitResponse(BaseModel):
+    kb_name: str
+    session_id: str | None = None
+    closed: bool
+    message: str
+
+
+@router.get("/help", response_model=KnowledgeCommandHelpResponse)
+async def help_knowledge(
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    service: Annotated[KnowledgeService, Depends(get_knowledge_service)],
+) -> KnowledgeCommandHelpResponse:
+    return KnowledgeCommandHelpResponse(**service.help())
+
+
 @router.post("/query", response_model=KnowledgeQueryResponse)
 async def query_knowledge(
     payload: KnowledgeQueryRequest,
@@ -118,3 +177,44 @@ async def status_knowledge(
     kb_name: str | None = None,
 ) -> KnowledgeStatusResponse:
     return KnowledgeStatusResponse(**service.status(kb_name=kb_name))
+
+
+@router.post("/clear", response_model=KnowledgeClearResponse)
+async def clear_knowledge_chat(
+    payload: KnowledgeClearRequest,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    service: Annotated[KnowledgeService, Depends(get_knowledge_service)],
+) -> KnowledgeClearResponse:
+    return KnowledgeClearResponse(
+        **service.clear_session(
+            kb_name=payload.kb_name,
+            previous_session_id=payload.previous_session_id,
+        )
+    )
+
+
+@router.post("/save", response_model=KnowledgeSaveResponse)
+async def save_knowledge_chat(
+    payload: KnowledgeSaveRequest,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
+    service: Annotated[KnowledgeService, Depends(get_knowledge_service)],
+) -> KnowledgeSaveResponse:
+    return KnowledgeSaveResponse(**service.save_transcript(**payload.model_dump()))
+
+
+@router.post("/lint", response_model=KnowledgeLintResponse)
+async def lint_knowledge(
+    payload: KnowledgeLintRequest,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
+    service: Annotated[KnowledgeService, Depends(get_knowledge_service)],
+) -> KnowledgeLintResponse:
+    return KnowledgeLintResponse(**await service.lint(kb_name=payload.kb_name))
+
+
+@router.post("/exit", response_model=KnowledgeExitResponse)
+async def exit_knowledge_chat(
+    payload: KnowledgeExitRequest,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    service: Annotated[KnowledgeService, Depends(get_knowledge_service)],
+) -> KnowledgeExitResponse:
+    return KnowledgeExitResponse(**service.exit_session(**payload.model_dump()))

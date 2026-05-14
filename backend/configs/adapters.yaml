@@ -1,8 +1,8 @@
 openkb:
   kb_root: storage/openkb
   default_kb: default
-  model: qwen3.6-plus
-  language: en
+  model: dashscope/qwen3.6-plus
+  language: zh
   pageindex_threshold: 20
   llm_api_key: null
 rag:

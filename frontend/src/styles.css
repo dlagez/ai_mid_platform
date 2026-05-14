@@ -70,6 +70,13 @@ body {
   margin-top: 16px;
 }
 
+.openkb-command-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 .chat-panel {
   display: flex;
   flex-direction: column;

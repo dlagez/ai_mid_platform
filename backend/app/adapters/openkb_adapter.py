@@ -29,6 +29,17 @@ DEFAULT_AGENTS_MD = """# Wiki Schema
 - log.md - Chronological append-only operation log.
 """
 
+OPENKB_COMMANDS = [
+    {"command": "/help", "description": "List available commands"},
+    {"command": "/status", "description": "Show knowledge base status"},
+    {"command": "/list", "description": "List all documents"},
+    {"command": "/add <path>", "description": "Add a document or directory without leaving the chat"},
+    {"command": "/save [name]", "description": "Export the transcript to wiki/explorations/"},
+    {"command": "/clear", "description": "Start a fresh session; the current one stays on disk"},
+    {"command": "/lint", "description": "Run knowledge base lint"},
+    {"command": "/exit", "description": "Exit the chat session"},
+]
+
 
 class OpenKBAdapter(BaseAdapter):
     def __init__(self, name: str, config: dict[str, Any]) -> None:
@@ -52,7 +63,20 @@ class OpenKBAdapter(BaseAdapter):
             return self.list(**payload.get("params", {}))
         if operation == "status":
             return self.status(**payload.get("params", {}))
+        if operation == "help":
+            return self.help()
+        if operation == "save":
+            return self.save_transcript(**payload["params"])
+        if operation == "clear":
+            return self.clear_session(**payload.get("params", {}))
+        if operation == "lint":
+            return await self.lint(**payload.get("params", {}))
+        if operation == "exit":
+            return self.exit_session(**payload.get("params", {}))
         raise PlatformError(f"Unsupported OpenKB operation: {operation}", status_code=400)
+
+    def help(self) -> dict[str, Any]:
+        return {"commands": OPENKB_COMMANDS}
 
     async def query(self, question: str, kb_name: str | None = None, save: bool = False) -> dict[str, Any]:
         from openkb.agent.query import run_query
@@ -214,10 +238,75 @@ class OpenKBAdapter(BaseAdapter):
         destination.write_bytes(content)
         return destination
 
+    def clear_session(self, kb_name: str | None = None, previous_session_id: str | None = None) -> dict[str, Any]:
+        from openkb.agent.chat_session import ChatSession
+        from openkb.config import load_config
+
+        kb_dir = self._ensure_kb(kb_name)
+        config = load_config(kb_dir / ".openkb" / "config.yaml")
+        session = ChatSession.new(
+            kb_dir,
+            config.get("model", self.model),
+            config.get("language", self.language),
+        )
+        session.save()
+        return {
+            "kb_name": kb_dir.name,
+            "previous_session_id": previous_session_id,
+            "session_id": session.id,
+            "message": "Started a fresh OpenKB session.",
+        }
+
+    def save_transcript(
+        self,
+        session_id: str,
+        kb_name: str | None = None,
+        name: str | None = None,
+    ) -> dict[str, Any]:
+        from openkb.agent.chat import _save_transcript
+        from openkb.agent.chat_session import load_session, resolve_session_id
+
+        kb_dir = self._ensure_kb(kb_name)
+        resolved = resolve_session_id(kb_dir, session_id)
+        if not resolved:
+            raise PlatformError(f"OpenKB chat session not found: {session_id}", status_code=404)
+        session = load_session(kb_dir, resolved)
+        if not session.user_turns:
+            raise PlatformError("Nothing to save yet.", status_code=400)
+        path = _save_transcript(kb_dir, session, name)
+        return {
+            "kb_name": kb_dir.name,
+            "session_id": session.id,
+            "saved_path": str(path),
+            "message": f"Saved transcript to {path}",
+        }
+
+    async def lint(self, kb_name: str | None = None) -> dict[str, Any]:
+        from openkb.cli import run_lint
+
+        kb_dir = self._ensure_kb(kb_name)
+        report_path = await run_lint(kb_dir)
+        return {
+            "kb_name": kb_dir.name,
+            "report_path": str(report_path) if report_path else None,
+            "message": "Lint completed." if report_path else "Nothing to lint.",
+        }
+
+    def exit_session(self, kb_name: str | None = None, session_id: str | None = None) -> dict[str, Any]:
+        kb_dir = self._ensure_kb(kb_name)
+        return {
+            "kb_name": kb_dir.name,
+            "session_id": session_id,
+            "closed": True,
+            "message": "Exited OpenKB chat session.",
+        }
+
     def _configure_llm_env(self, config: dict[str, Any]) -> None:
-        api_key = config.get("llm_api_key")
+        api_key = config.get("llm_api_key") or os.environ.get("LLM_API_KEY") or os.environ.get("BAILIAN_API_KEY")
         if api_key and not os.environ.get("LLM_API_KEY"):
             os.environ["LLM_API_KEY"] = str(api_key)
+        if api_key and not os.environ.get("DASHSCOPE_API_KEY"):
+            os.environ["DASHSCOPE_API_KEY"] = str(api_key)
         if os.environ.get("LLM_API_KEY"):
             for env_var in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY"):
                 os.environ.setdefault(env_var, os.environ["LLM_API_KEY"])
@@ -247,14 +336,7 @@ class OpenKBAdapter(BaseAdapter):
             "# Knowledge Base Index\n\n## Documents\n\n## Concepts\n\n## Explorations\n",
         )
         self._write_file_if_missing(kb_dir / "wiki" / "log.md", "# Operations Log\n\n")
-        self._write_yaml_if_missing(
-            openkb_dir / "config.yaml",
-            {
-                "model": self.model,
-                "language": self.language,
-                "pageindex_threshold": self.pageindex_threshold,
-            },
-        )
+        self._sync_openkb_config(openkb_dir / "config.yaml")
         self._write_file_if_missing(openkb_dir / "hashes.json", json.dumps({}))
         return kb_dir
 
@@ -265,6 +347,17 @@ class OpenKBAdapter(BaseAdapter):
     def _write_yaml_if_missing(self, path: Path, content: dict[str, Any]) -> None:
         if not path.exists():
             path.write_text(yaml.safe_dump(content, allow_unicode=True, sort_keys=True), encoding="utf-8")
+
+    def _sync_openkb_config(self, path: Path) -> None:
+        existing = yaml.safe_load(path.read_text(encoding="utf-8")) if path.exists() else {}
+        desired = {
+            **(existing or {}),
+            "model": self.model,
+            "language": self.language,
+            "pageindex_threshold": self.pageindex_threshold,
+        }
+        if desired != existing:
+            path.write_text(yaml.safe_dump(desired, allow_unicode=True, sort_keys=True), encoding="utf-8")
 
     def _read_hashes(self, kb_dir: Path) -> dict[str, dict[str, Any]]:
         hashes_file = kb_dir / ".openkb" / "hashes.json"

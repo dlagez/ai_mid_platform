@@ -22,7 +22,9 @@ import {
   CommentOutlined,
   FileSearchOutlined,
   FolderOpenOutlined,
+  InfoCircleOutlined,
   ReloadOutlined,
+  SaveOutlined,
   SearchOutlined,
   SendOutlined,
 } from "@ant-design/icons";
@@ -30,11 +32,17 @@ import {
   addKnowledgeFile,
   addKnowledgePath,
   chatKnowledge,
+  clearKnowledgeSession,
+  exitKnowledgeSession,
   getKnowledgeStatus,
+  helpKnowledge,
+  lintKnowledge,
   listKnowledge,
   queryKnowledge,
+  saveKnowledgeTranscript,
   type KnowledgeAddResult,
   type KnowledgeChatResult,
+  type KnowledgeCommand,
   type KnowledgeList,
   type KnowledgeQueryResult,
   type KnowledgeStatus,
@@ -50,6 +58,25 @@ type ChatMessage = {
   content: string;
 };
 
+const getErrorStatus = (error: unknown) => {
+  if (typeof error === "object" && error !== null && "response" in error) {
+    return (error as { response?: { status?: number } }).response?.status;
+  }
+  return undefined;
+};
+
+const showAddResultMessage = (result: KnowledgeAddResult) => {
+  if (result.added.length > 0) {
+    message.success(`Added ${result.added.length} document(s).`);
+    return;
+  }
+  if (result.skipped.length > 0) {
+    message.warning(result.skipped[0]);
+    return;
+  }
+  message.info("No document changes.");
+};
+
 export const OpenKBPage = () => {
   const [kbName, setKbName] = useState("default");
   const [status, setStatus] = useState<KnowledgeStatus | null>(null);
@@ -58,12 +85,15 @@ export const OpenKBPage = () => {
   const [queryResult, setQueryResult] = useState<KnowledgeQueryResult | null>(null);
   const [chatSessionId, setChatSessionId] = useState<string | undefined>();
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [commands, setCommands] = useState<KnowledgeCommand[]>([]);
+  const [commandOutput, setCommandOutput] = useState<string>("Command output will appear here.");
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [loading, setLoading] = useState({
     status: false,
     add: false,
     query: false,
     chat: false,
+    command: false,
   });
 
   const activeKbName = kbName.trim() || "default";
@@ -96,6 +126,7 @@ export const OpenKBPage = () => {
 
   useEffect(() => {
     void refreshKnowledge();
+    void handleHelp();
   }, []);
 
   const handleAddPath = async (values: { path: string }) => {
@@ -103,9 +134,10 @@ export const OpenKBPage = () => {
     try {
       const result = await addKnowledgePath({ kbName: activeKbName, path: values.path });
       setAddResult(result);
+      showAddResultMessage(result);
       await refreshKnowledge();
     } catch (error) {
-      message.error("OpenKB add by path failed.");
+      message.error(getErrorStatus(error) === 401 ? "Session expired. Login again." : "OpenKB add by path failed.");
     } finally {
       setLoading((current) => ({ ...current, add: false }));
     }
@@ -121,10 +153,11 @@ export const OpenKBPage = () => {
     try {
       const result = await addKnowledgeFile({ kbName: activeKbName, file: originFile });
       setAddResult(result);
+      showAddResultMessage(result);
       setFileList([]);
       await refreshKnowledge();
     } catch (error) {
-      message.error("OpenKB upload failed.");
+      message.error(getErrorStatus(error) === 401 ? "Session expired. Login again." : "OpenKB upload failed.");
     } finally {
       setLoading((current) => ({ ...current, add: false }));
     }
@@ -163,6 +196,80 @@ export const OpenKBPage = () => {
     } finally {
       setLoading((current) => ({ ...current, chat: false }));
     }
+  };
+
+  const runCommand = async (action: () => Promise<unknown>, successMessage?: string) => {
+    setLoading((current) => ({ ...current, command: true }));
+    try {
+      const result = await action();
+      setCommandOutput(JSON.stringify(result, null, 2));
+      if (successMessage) {
+        message.success(successMessage);
+      }
+      return result;
+    } catch (error) {
+      message.error(getErrorStatus(error) === 401 ? "Session expired. Login again." : "OpenKB command failed.");
+      return null;
+    } finally {
+      setLoading((current) => ({ ...current, command: false }));
+    }
+  };
+
+  const handleHelp = async () => {
+    const result = await runCommand(() => helpKnowledge());
+    if (result && typeof result === "object" && "commands" in result) {
+      setCommands((result as { commands: KnowledgeCommand[] }).commands);
+    }
+  };
+
+  const handleCommandStatus = async () => {
+    const result = await runCommand(() => getKnowledgeStatus(activeKbName));
+    if (result) {
+      setStatus(result as KnowledgeStatus);
+    }
+  };
+
+  const handleCommandList = async () => {
+    const result = await runCommand(() => listKnowledge(activeKbName));
+    if (result) {
+      setKnowledgeList(result as KnowledgeList);
+    }
+  };
+
+  const handleSaveTranscript = async () => {
+    if (!chatSessionId) {
+      message.warning("Start a chat session before saving.");
+      return;
+    }
+    await runCommand(
+      () => saveKnowledgeTranscript({ kbName: activeKbName, sessionId: chatSessionId }),
+      "Transcript saved.",
+    );
+  };
+
+  const handleClearSession = async () => {
+    const result = await runCommand(
+      () => clearKnowledgeSession({ kbName: activeKbName, previousSessionId: chatSessionId }),
+      "Started a fresh session.",
+    );
+    if (result && typeof result === "object" && "session_id" in result) {
+      setChatSessionId((result as { session_id: string }).session_id);
+      setChatMessages([]);
+    }
+  };
+
+  const handleLint = async () => {
+    await runCommand(() => lintKnowledge({ kbName: activeKbName }), "Lint finished.");
+    await refreshKnowledge();
+  };
+
+  const handleExitSession = async () => {
+    await runCommand(
+      () => exitKnowledgeSession({ kbName: activeKbName, sessionId: chatSessionId }),
+      "Exited chat session.",
+    );
+    setChatSessionId(undefined);
+    setChatMessages([]);
   };
 
   return (
@@ -265,6 +372,47 @@ export const OpenKBPage = () => {
 
         <Col xs={24} xl={14}>
           <Space direction="vertical" size={16} style={{ width: "100%" }}>
+            <Card title="Commands">
+              <Space wrap>
+                <Button icon={<InfoCircleOutlined />} loading={loading.command} onClick={() => void handleHelp()}>
+                  /help
+                </Button>
+                <Button loading={loading.command} onClick={() => void handleCommandStatus()}>
+                  /status
+                </Button>
+                <Button loading={loading.command} onClick={() => void handleCommandList()}>
+                  /list
+                </Button>
+                <Button
+                  icon={<FolderOpenOutlined />}
+                  loading={loading.add}
+                  onClick={() => setCommandOutput("Use the Add Documents panel on the left for /add <path> or upload.")}
+                >
+                  /add
+                </Button>
+                <Button icon={<SaveOutlined />} loading={loading.command} onClick={() => void handleSaveTranscript()}>
+                  /save
+                </Button>
+                <Button icon={<CommentOutlined />} loading={loading.command} onClick={() => void handleClearSession()}>
+                  /clear
+                </Button>
+                <Button loading={loading.command} onClick={() => void handleLint()}>
+                  /lint
+                </Button>
+                <Button danger loading={loading.command} onClick={() => void handleExitSession()}>
+                  /exit
+                </Button>
+              </Space>
+              {commands.length ? (
+                <div className="openkb-command-list">
+                  {commands.map((item) => (
+                    <Tag key={item.command}>{item.command}</Tag>
+                  ))}
+                </div>
+              ) : null}
+              <Typography.Paragraph className="openkb-output">{commandOutput}</Typography.Paragraph>
+            </Card>
+
             <Card title="Query">
               <Form<QueryForm>
                 layout="vertical"

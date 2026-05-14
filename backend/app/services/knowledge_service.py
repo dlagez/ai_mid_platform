@@ -17,6 +17,9 @@ class KnowledgeService:
     def initialize_default_kb(self) -> Path:
         return self.openkb.initialize_default_kb()
 
+    def help(self) -> dict[str, Any]:
+        return self.openkb.help()
+
     async def query(self, payload: dict[str, Any]) -> dict[str, Any]:
         return await self.openkb.query(**payload)
 
@@ -31,6 +34,23 @@ class KnowledgeService:
 
     def status(self, kb_name: str | None = None) -> dict[str, Any]:
         return self.openkb.status(kb_name=kb_name)
+
+    def clear_session(self, kb_name: str | None = None, previous_session_id: str | None = None) -> dict[str, Any]:
+        return self.openkb.clear_session(kb_name=kb_name, previous_session_id=previous_session_id)
+
+    def save_transcript(
+        self,
+        session_id: str,
+        kb_name: str | None = None,
+        name: str | None = None,
+    ) -> dict[str, Any]:
+        return self.openkb.save_transcript(session_id=session_id, kb_name=kb_name, name=name)
+
+    async def lint(self, kb_name: str | None = None) -> dict[str, Any]:
+        return await self.openkb.lint(kb_name=kb_name)
+
+    def exit_session(self, kb_name: str | None = None, session_id: str | None = None) -> dict[str, Any]:
+        return self.openkb.exit_session(kb_name=kb_name, session_id=session_id)
 
     def save_upload(self, filename: str, content: bytes, kb_name: str | None = None) -> Path:
         return self.openkb.save_upload(filename, content, kb_name=kb_name)
