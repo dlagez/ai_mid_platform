@@ -1,0 +1,7 @@
+litellm:
+  api_base: null
+  api_key: null
+  default_model: gpt-4o-mini
+rag:
+  provider: placeholder
+  index_bucket: rag-indexes
