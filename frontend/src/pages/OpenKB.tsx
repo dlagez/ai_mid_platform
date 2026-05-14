@@ -272,6 +272,64 @@ export const OpenKBPage = () => {
     setChatMessages([]);
   };
 
+  type CommandRow = {
+    command: string;
+    description: string;
+    action: () => void | Promise<void>;
+    icon?: React.ReactNode;
+    loading?: boolean;
+    danger?: boolean;
+  };
+
+  const commandRows: CommandRow[] = [
+    {
+      command: "/help",
+      description: "List available commands",
+      action: handleHelp,
+      icon: <InfoCircleOutlined />,
+    },
+    {
+      command: "/status",
+      description: "Show knowledge base status",
+      action: handleCommandStatus,
+    },
+    {
+      command: "/list",
+      description: "List all documents",
+      action: handleCommandList,
+    },
+    {
+      command: "/add <path>",
+      description: "Use the Add Documents panel",
+      action: () => setCommandOutput("Use the Add Documents panel on the left for /add <path> or upload."),
+      icon: <FolderOpenOutlined />,
+      loading: loading.add,
+    },
+    {
+      command: "/save [name]",
+      description: "Export current chat transcript",
+      action: handleSaveTranscript,
+      icon: <SaveOutlined />,
+    },
+    {
+      command: "/clear",
+      description: "Start a fresh session",
+      action: handleClearSession,
+      icon: <CommentOutlined />,
+    },
+    {
+      command: "/lint",
+      description: "Run knowledge base lint",
+      action: handleLint,
+    },
+    {
+      command: "/exit",
+      description: "Exit current chat session",
+      action: handleExitSession,
+      danger: true,
+    },
+  ];
+
   return (
     <div className="page">
       <div className="page-heading">
@@ -373,44 +431,46 @@ export const OpenKBPage = () => {
         <Col xs={24} xl={14}>
           <Space direction="vertical" size={16} style={{ width: "100%" }}>
             <Card title="Commands">
-              <Space wrap>
-                <Button icon={<InfoCircleOutlined />} loading={loading.command} onClick={() => void handleHelp()}>
-                  /help
-                </Button>
-                <Button loading={loading.command} onClick={() => void handleCommandStatus()}>
-                  /status
-                </Button>
-                <Button loading={loading.command} onClick={() => void handleCommandList()}>
-                  /list
-                </Button>
-                <Button
-                  icon={<FolderOpenOutlined />}
-                  loading={loading.add}
-                  onClick={() => setCommandOutput("Use the Add Documents panel on the left for /add <path> or upload.")}
-                >
-                  /add
-                </Button>
-                <Button icon={<SaveOutlined />} loading={loading.command} onClick={() => void handleSaveTranscript()}>
-                  /save
-                </Button>
-                <Button icon={<CommentOutlined />} loading={loading.command} onClick={() => void handleClearSession()}>
-                  /clear
-                </Button>
-                <Button loading={loading.command} onClick={() => void handleLint()}>
-                  /lint
-                </Button>
-                <Button danger loading={loading.command} onClick={() => void handleExitSession()}>
-                  /exit
-                </Button>
-              </Space>
-              {commands.length ? (
-                <div className="openkb-command-list">
-                  {commands.map((item) => (
-                    <Tag key={item.command}>{item.command}</Tag>
-                  ))}
+              <div className="openkb-command-panel">
+                <Table
+                  rowKey="command"
+                  size="small"
+                  pagination={false}
+                  dataSource={commandRows}
+                  columns={[
+                    {
+                      title: "Command",
+                      dataIndex: "command",
+                      width: 150,
+                      render: (command: string) => <Typography.Text code>{command}</Typography.Text>,
+                    },
+                    {
+                      title: "Purpose",
+                      dataIndex: "description",
+                      ellipsis: true,
+                    },
+                    {
+                      title: "",
+                      width: 96,
+                      render: (_, row) => (
+                        <Button
+                          size="small"
+                          danger={row.danger}
+                          icon={row.icon}
+                          loading={row.loading ?? loading.command}
+                          onClick={() => void row.action()}
+                        >
+                          Run
+                        </Button>
+                      ),
+                    },
+                  ]}
+                />
+                <div className="openkb-command-output">
+                  <Typography.Text strong>Output</Typography.Text>
+                  <Typography.Paragraph className="openkb-output">{commandOutput}</Typography.Paragraph>
                 </div>
-              ) : null}
-              <Typography.Paragraph className="openkb-output">{commandOutput}</Typography.Paragraph>
+              </div>
             </Card>
 
             <Card title="Query">

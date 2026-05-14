@@ -70,11 +70,20 @@ body {
   margin-top: 16px;
 }
 
-.openkb-command-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 16px;
+.openkb-command-panel {
+  display: grid;
+  grid-template-columns: minmax(420px, 1fr) minmax(260px, 0.8fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.openkb-command-output {
+  min-width: 0;
+}
+
+.openkb-command-output .openkb-output {
+  margin-top: 8px;
+  max-height: 300px;
 }
 
 .chat-panel {
@@ -111,4 +120,15 @@ body {
   margin: 8px 0 0;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+@media (max-width: 1100px) {
+  .page-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .openkb-command-panel {
+    grid-template-columns: 1fr;
+  }
 }
