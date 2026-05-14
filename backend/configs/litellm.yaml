@@ -1,20 +1,12 @@
 # LiteLLM provider configurations
 # api_key supports ${ENV_VAR} substitution from .env
 providers:
-  openai:
-    api_base: null
-    api_key: null  # Set via OPENAI_API_KEY env var
   dashscope:
     api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
     api_key: ${BAILIAN_API_KEY}
 
 # Model routing: model -> provider
 models:
-  gpt-4o-mini: openai
-  gpt-4o: openai
-  qwen-max: dashscope
-  qwen-plus: dashscope
-  qwen-turbo: dashscope
-  qwen2.5-72b-instruct: dashscope
+  qwen3.6-plus: dashscope
 
-default_model: gpt-4o-mini
+default_model: qwen3.6-plus

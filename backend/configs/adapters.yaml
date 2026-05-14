@@ -1,7 +1,7 @@
 openkb:
   kb_root: storage/openkb
   default_kb: default
-  model: gpt-5.4-mini
+  model: qwen3.6-plus
   language: en
   pageindex_threshold: 20
   llm_api_key: null

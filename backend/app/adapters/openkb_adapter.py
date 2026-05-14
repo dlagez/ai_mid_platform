@@ -35,7 +35,7 @@ class OpenKBAdapter(BaseAdapter):
         super().__init__(name, config)
         self.kb_root = Path(config.get("kb_root", "storage/openkb")).expanduser()
         self.default_kb = config.get("default_kb", "default")
-        self.model = config.get("model", "gpt-5.4-mini")
+        self.model = config.get("model", "qwen3.6-plus")
         self.language = config.get("language", "en")
         self.pageindex_threshold = int(config.get("pageindex_threshold", 20))
         self._configure_llm_env(config)
@@ -219,7 +219,7 @@ class OpenKBAdapter(BaseAdapter):
         if api_key and not os.environ.get("LLM_API_KEY"):
             os.environ["LLM_API_KEY"] = str(api_key)
         if os.environ.get("LLM_API_KEY"):
-            for env_var in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"):
+            for env_var in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY"):
                 os.environ.setdefault(env_var, os.environ["LLM_API_KEY"])
 
     def initialize_default_kb(self) -> Path:

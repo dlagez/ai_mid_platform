@@ -104,4 +104,4 @@ Demo users:
 - Refine JWT auth is implemented in `frontend/src/auth/authProvider.ts`.
 - Backend RBAC is enforced through `require_permission` in `backend/app/utils/jwt.py`.
 - Celery task endpoints are in `backend/app/api/v1/tasks.py`.
-- Set `LLM_API_KEY` or provider-specific keys such as `OPENAI_API_KEY` in `.env` before calling OpenKB query/chat APIs.
+- Set `LLM_API_KEY` in `.env` before calling OpenKB query/chat APIs.

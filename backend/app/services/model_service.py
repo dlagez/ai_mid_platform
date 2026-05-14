@@ -26,7 +26,7 @@ class ModelService:
         if not config_path.exists():
             self.providers: dict[str, dict[str, Any]] = {}
             self.model_map: dict[str, str] = {}
-            self.default_model = "gpt-4o-mini"
+            self.default_model = "qwen3.6-plus"
             return
 
         raw = yaml.safe_load(config_path.read_text()) or {}
@@ -39,10 +39,10 @@ class ModelService:
             for name, p in providers.items()
         }
         self.model_map = raw.get("models", {})
-        self.default_model = raw.get("default_model", "gpt-4o-mini")
+        self.default_model = raw.get("default_model", "qwen-max")
 
     def _get_provider_for_model(self, model: str) -> str:
-        return self.model_map.get(model, "openai")
+        return self.model_map.get(model, "dashscope")
 
     async def call_model(self, payload: dict[str, Any]) -> dict[str, Any]:
         model = payload.get("model", self.default_model)
