@@ -21,6 +21,7 @@ import {
   AppstoreOutlined,
   DashboardOutlined,
   DatabaseOutlined,
+  FileTextOutlined,
   RobotOutlined,
 } from "@ant-design/icons";
 import "@refinedev/antd/dist/reset.css";
@@ -33,6 +34,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { ModelCallPage } from "./pages/ModelCall";
 import { OpenKBPage } from "./pages/OpenKB";
 import { TaskListPage } from "./pages/TaskList";
+import { ConstructionPlanReviewPage } from "./pages/ConstructionPlanReview";
 
 const resources = [
   {
@@ -54,6 +56,11 @@ const resources = [
     name: "openkb",
     list: "/openkb",
     meta: { label: "OpenKB", icon: <DatabaseOutlined /> },
+  },
+  {
+    name: "construction-plan",
+    list: "/construction-plan",
+    meta: { label: "Review of Construction Plan", icon: <FileTextOutlined /> },
   },
 ];
 
@@ -93,6 +100,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                 <Route path="/tasks" element={<TaskListPage />} />
                 <Route path="/models" element={<ModelCallPage />} />
                 <Route path="/openkb" element={<OpenKBPage />} />
+                <Route path="/construction-plan" element={<ConstructionPlanReviewPage />} />
                 <Route path="*" element={<ErrorComponent />} />
               </Route>
 

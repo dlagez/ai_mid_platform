@@ -1,3 +1,4 @@
+docx2python==3.6.2
 alembic==1.13.3
 celery==5.4.0
 fastapi==0.115.0

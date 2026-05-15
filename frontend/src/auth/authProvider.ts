@@ -1,5 +1,5 @@
 import type { AuthProvider } from "@refinedev/core";
-import { apiClient, setAuthToken } from "../services/apiClient";
+import { apiClient, clearAuthStorage, setAuthToken, TOKEN_KEY, USER_KEY } from "../services/apiClient";
 
 type LoginParams = {
   username?: string;
@@ -7,8 +7,23 @@ type LoginParams = {
   password?: string;
 };
 
-const TOKEN_KEY = "ai_mid_platform_token";
-const USER_KEY = "ai_mid_platform_user";
+const isJwtExpired = (token: string) => {
+  try {
+    const [, payload] = token.split(".");
+    if (!payload) {
+      return true;
+    }
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+    const decoded = JSON.parse(window.atob(padded)) as { exp?: number };
+    if (!decoded.exp) {
+      return false;
+    }
+    return decoded.exp * 1000 <= Date.now();
+  } catch {
+    return true;
+  }
+};
 
 export const authProvider: AuthProvider = {
   login: async ({ username, email, password }: LoginParams) => {
@@ -27,14 +42,13 @@ export const authProvider: AuthProvider = {
     return { success: true, redirectTo: "/" };
   },
   logout: async () => {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
-    setAuthToken(null);
+    clearAuthStorage();
     return { success: true, redirectTo: "/login" };
   },
   check: async () => {
     const token = localStorage.getItem(TOKEN_KEY);
-    if (!token) {
+    if (!token || isJwtExpired(token)) {
+      clearAuthStorage();
       return { authenticated: false, redirectTo: "/login" };
     }
     setAuthToken(token);
@@ -50,6 +64,7 @@ export const authProvider: AuthProvider = {
   },
   onError: async (error) => {
     if (error?.response?.status === 401) {
+      clearAuthStorage();
       return { logout: true, redirectTo: "/login" };
     }
     return {};
