@@ -4,23 +4,28 @@ import {
   Card,
   Col,
   Divider,
+  Empty,
   Row,
   Space,
   Table,
   Tag,
+  Tree,
   Typography,
   Upload,
   message,
 } from "antd";
 import type { UploadFile } from "antd";
+import type { DataNode } from "antd/es/tree";
 import {
   CloudUploadOutlined,
   FileTextOutlined,
   ReloadOutlined,
 } from "@ant-design/icons";
 import {
+  getDocumentSections,
   listDocuments,
   parseDocument,
+  type PlanSection,
   uploadDocument,
   type DocumentParseResult,
   type DocumentRecord,
@@ -30,6 +35,7 @@ export const ConstructionPlanReviewPage = () => {
   const [files, setFiles] = useState<DocumentRecord[]>([]);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [parsed, setParsed] = useState<DocumentParseResult | null>(null);
+  const [selectedSection, setSelectedSection] = useState<PlanSection | null>(null);
   const [loading, setLoading] = useState({ files: false, upload: false, parse: false });
 
   const refreshFiles = async () => {
@@ -47,6 +53,17 @@ export const ConstructionPlanReviewPage = () => {
     void refreshFiles();
   }, []);
 
+  useEffect(() => {
+    const hasParsingFile = files.some((file) => file.parse_status === "uploaded" || file.parse_status === "parsing");
+    if (!hasParsingFile) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => {
+      void refreshFiles();
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [files]);
+
   const handleUpload = async () => {
     const originFile = fileList[0]?.originFileObj;
     if (!originFile) {
@@ -56,7 +73,7 @@ export const ConstructionPlanReviewPage = () => {
     setLoading((s) => ({ ...s, upload: true }));
     try {
       const result = await uploadDocument(originFile);
-      message.success(`Uploaded: ${result.file_name}`);
+      message.success(`Uploaded: ${result.file_name}. Parsing started.`);
       setFileList([]);
       await refreshFiles();
     } catch {
@@ -66,10 +83,31 @@ export const ConstructionPlanReviewPage = () => {
     }
   };
 
+  const selectFirstSection = (result: DocumentParseResult) => {
+    const first = findFirstSection(result.sections);
+    setSelectedSection(first);
+  };
+
+  const handleView = async (id: number) => {
+    setLoading((s) => ({ ...s, parse: true }));
+    try {
+      const result = await getDocumentSections(id);
+      setParsed(result);
+      selectFirstSection(result);
+    } catch {
+      message.error("Failed to load sections.");
+    } finally {
+      setLoading((s) => ({ ...s, parse: false }));
+    }
+  };
+
   const handleParse = async (id: number) => {
     setLoading((s) => ({ ...s, parse: true }));
     try {
-      setParsed(await parseDocument(id));
+      const result = await parseDocument(id);
+      setParsed(result);
+      selectFirstSection(result);
+      await refreshFiles();
     } catch {
       message.error("Parse failed.");
     } finally {
@@ -121,28 +159,45 @@ export const ConstructionPlanReviewPage = () => {
               columns={[
                 { title: "File Name", dataIndex: "file_name", ellipsis: true },
                 {
-                  title: "Uploaded By",
-                  dataIndex: "uploaded_by",
-                  width: 100,
+                  title: "Status",
+                  dataIndex: "parse_status",
+                  width: 92,
+                  render: (v: string) => <ParseStatusTag status={v} />,
                 },
                 {
-                  title: "Uploaded At",
-                  dataIndex: "uploaded_at",
+                  title: "Size",
+                  dataIndex: "file_size",
+                  width: 92,
+                  render: (v: number) => formatFileSize(v),
+                },
+                {
+                  title: "Created At",
+                  dataIndex: "created_at",
                   width: 170,
                   render: (v: string) => (v ? new Date(v).toLocaleString() : "-"),
                 },
                 {
                   title: "",
-                  width: 80,
+                  width: 150,
                   render: (_, record) => (
-                    <Button
-                      size="small"
-                      icon={<FileTextOutlined />}
-                      loading={loading.parse}
-                      onClick={() => void handleParse(record.id)}
-                    >
-                      Parse
-                    </Button>
+                    <Space size={6}>
+                      <Button
+                        size="small"
+                        icon={<FileTextOutlined />}
+                        loading={loading.parse}
+                        onClick={() => void handleView(record.id)}
+                      >
+                        View
+                      </Button>
+                      <Button
+                        size="small"
+                        icon={<ReloadOutlined />}
+                        loading={loading.parse}
+                        onClick={() => void handleParse(record.id)}
+                      >
+                        Parse
+                      </Button>
+                    </Space>
                   ),
                 },
               ]}
@@ -151,27 +206,54 @@ export const ConstructionPlanReviewPage = () => {
         </Col>
 
         <Col xs={24} xl={14}>
-          <Card title="Table of Contents">
+          <Card title="Sections">
             {parsed ? (
               <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                <Tag color="blue">{parsed.file_name}</Tag>
-                <Typography.Paragraph
-                  style={{
-                    whiteSpace: "pre-wrap",
-                    fontFamily: "monospace",
-                    background: "#fafafa",
-                    padding: 16,
-                    borderRadius: 8,
-                    maxHeight: 600,
-                    overflow: "auto",
-                  }}
-                >
-                  {parsed.toc_text || "No Table of Contents found in this document."}
-                </Typography.Paragraph>
+                <Space>
+                  <Tag color="blue">{parsed.file_name}</Tag>
+                  <ParseStatusTag status={parsed.parse_status} />
+                </Space>
+                {parsed.sections.length ? (
+                  <Row gutter={[16, 16]}>
+                    <Col xs={24} lg={10}>
+                      <div className="plan-section-tree">
+                        <Tree
+                          blockNode
+                          defaultExpandAll
+                          selectedKeys={selectedSection ? [String(selectedSection.id)] : []}
+                          treeData={toTreeData(parsed.sections)}
+                          onSelect={(keys) => {
+                            const key = keys[0];
+                            if (!key) {
+                              return;
+                            }
+                            setSelectedSection(findSection(parsed.sections, Number(key)));
+                          }}
+                        />
+                      </div>
+                    </Col>
+                    <Col xs={24} lg={14}>
+                      <div className="plan-section-content">
+                        {selectedSection ? (
+                          <>
+                            <Typography.Title level={4}>{selectedSection.title}</Typography.Title>
+                            <Typography.Paragraph>
+                              {selectedSection.content || "No content found for this section."}
+                            </Typography.Paragraph>
+                          </>
+                        ) : (
+                          <Empty description="Select a section" />
+                        )}
+                      </div>
+                    </Col>
+                  </Row>
+                ) : (
+                  <Empty description="No sections found in this document." />
+                )}
               </Space>
             ) : (
               <Typography.Text type="secondary">
-                Upload a .docx file and click "Parse" to see the Table of Contents.
+                Upload a .docx file, then view the parsed section tree and content.
               </Typography.Text>
             )}
           </Card>
@@ -179,4 +261,44 @@ export const ConstructionPlanReviewPage = () => {
       </Row>
     </div>
   );
+};
+
+const toTreeData = (sections: PlanSection[]): DataNode[] =>
+  sections.map((section) => ({
+    key: String(section.id),
+    title: section.title,
+    children: toTreeData(section.children),
+  }));
+
+const findSection = (sections: PlanSection[], id: number): PlanSection | null => {
+  for (const section of sections) {
+    if (section.id === id) {
+      return section;
+    }
+    const child = findSection(section.children, id);
+    if (child) {
+      return child;
+    }
+  }
+  return null;
+};
+
+const findFirstSection = (sections: PlanSection[]): PlanSection | null => {
+  const [first] = sections;
+  return first ?? null;
+};
+
+const formatFileSize = (size: number) => {
+  if (size < 1024) {
+    return `${size} B`;
+  }
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+};
+
+const ParseStatusTag = ({ status }: { status: string }) => {
+  const color = status === "parsed" ? "green" : status === "failed" ? "red" : "blue";
+  return <Tag color={color}>{status}</Tag>;
 };

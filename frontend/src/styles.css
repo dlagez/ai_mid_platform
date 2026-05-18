@@ -70,6 +70,30 @@ body {
   margin-top: 16px;
 }
 
+.plan-section-tree {
+  max-height: 560px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid #e8edf3;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.plan-section-content {
+  min-height: 240px;
+  max-height: 560px;
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid #e8edf3;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.plan-section-content .ant-typography {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .openkb-command-panel {
   display: grid;
   grid-template-columns: minmax(420px, 1fr) minmax(260px, 0.8fr);
