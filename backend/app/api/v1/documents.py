@@ -61,8 +61,8 @@ async def upload_document(
     background_tasks: BackgroundTasks,
     file: Annotated[UploadFile, File()],
 ) -> DocumentUploadResponse:
-    if not (file.filename or "").lower().endswith(".docx"):
-        raise PlatformError("Only .docx files are supported.", status_code=400)
+    if not (file.filename or "").lower().endswith((".docx", ".pdf")):
+        raise PlatformError("Only .docx and .pdf files are supported.", status_code=400)
     record = await service.upload(db, file, current_user.username)
     background_tasks.add_task(service.parse_in_background, record.id)
     return DocumentUploadResponse(id=record.id, file_name=record.file_name, status=record.parse_status)

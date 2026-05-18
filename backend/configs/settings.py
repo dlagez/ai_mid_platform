@@ -11,6 +11,14 @@ class Settings(BaseSettings):
     minio_bucket_documents: str = "documents"
     minio_bucket_indexes: str = "rag-indexes"
 
+    docling_base_url: str | None = None
+    docling_convert_endpoint: str = "/v1/convert/file"
+    docling_legacy_convert_endpoint: str = "/v1alpha/convert/file"
+    docling_file_field_name: str = "files"
+    docling_api_key: str | None = None
+    docling_api_key_header: str = "Authorization"
+    docling_timeout_seconds: int = 300
+
     jwt_secret_key: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 60

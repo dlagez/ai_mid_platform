@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import PlanDocument, PlanSection
 from app.db.session import SessionLocal
-from app.utils.docx_parser import ParsedSection, parse_word, parse_word_sections
+from app.parsers.docling import DoclingParser, ParsedSection
 from configs.settings import settings
 
 
@@ -23,6 +23,7 @@ class DocumentService:
             secure=False,
         )
         self._bucket = settings.minio_bucket_documents
+        self._parser = DoclingParser()
 
     def _ensure_bucket(self) -> None:
         if not self._minio.bucket_exists(self._bucket):
@@ -70,7 +71,7 @@ class DocumentService:
         tmp_path: str | None = None
         try:
             tmp_path = self._download_to_temp(record)
-            sections = parse_word_sections(tmp_path)
+            sections = self._parser.parse_sections(tmp_path, record.file_name)
             db.query(PlanSection).filter(PlanSection.document_id == record.id).delete()
             sort_counter = 1
             for section in sections:
@@ -111,7 +112,8 @@ class DocumentService:
             raise FileNotFoundError(f"PlanDocument id={record_id} not found")
         tmp_path = self._download_to_temp(record)
         try:
-            return parse_word(tmp_path)
+            sections = self._parser.parse_sections(tmp_path, record.file_name)
+            return "\n".join(_sections_to_toc_lines(sections))
         finally:
             os.unlink(tmp_path)
 
@@ -156,6 +158,14 @@ class DocumentService:
                 next_sort_no,
             )
         return next_sort_no
+
+
+def _sections_to_toc_lines(sections: list[ParsedSection]) -> list[str]:
+    lines: list[str] = []
+    for section in sections:
+        lines.append(f"{'  ' * max(section.level - 1, 0)}{section.title}")
+        lines.extend(_sections_to_toc_lines(section.children))
+    return lines
 
 
 _document_service: DocumentService | None = None
