@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.db.models import PlanDocument, PlanSection
 from app.db.session import SessionLocal
-from app.parsers.docling import DoclingParser, ParsedSection
+from app.parsers.base import ParsedSection
+from app.parsers.factory import get_parser, validate_parser_file
 from configs.settings import settings
 
 
@@ -23,7 +24,6 @@ class DocumentService:
             secure=False,
         )
         self._bucket = settings.minio_bucket_documents
-        self._parser = DoclingParser()
 
     def _ensure_bucket(self) -> None:
         if not self._minio.bucket_exists(self._bucket):
@@ -60,7 +60,7 @@ class DocumentService:
     def list_files(self, db: Session) -> list[PlanDocument]:
         return db.query(PlanDocument).order_by(PlanDocument.created_at.desc()).all()
 
-    def parse(self, db: Session, record_id: int) -> PlanDocument:
+    def parse(self, db: Session, record_id: int, parser_provider: str | None = None) -> PlanDocument:
         record = db.query(PlanDocument).filter(PlanDocument.id == record_id).first()
         if not record:
             raise FileNotFoundError(f"PlanDocument id={record_id} not found")
@@ -70,8 +70,10 @@ class DocumentService:
 
         tmp_path: str | None = None
         try:
+            validate_parser_file(parser_provider, record.file_name)
             tmp_path = self._download_to_temp(record)
-            sections = self._parser.parse_sections(tmp_path, record.file_name)
+            parser = get_parser(parser_provider)
+            sections = parser.parse_sections(tmp_path, record.file_name)
             db.query(PlanSection).filter(PlanSection.document_id == record.id).delete()
             sort_counter = 1
             for section in sections:
@@ -91,10 +93,10 @@ class DocumentService:
             if tmp_path:
                 os.unlink(tmp_path)
 
-    def parse_in_background(self, record_id: int) -> None:
+    def parse_in_background(self, record_id: int, parser_provider: str | None = None) -> None:
         db = SessionLocal()
         try:
-            self.parse(db, record_id)
+            self.parse(db, record_id, parser_provider)
         finally:
             db.close()
 
@@ -106,13 +108,15 @@ class DocumentService:
             .all()
         )
 
-    def get_toc_text(self, db: Session, record_id: int) -> str:
+    def get_toc_text(self, db: Session, record_id: int, parser_provider: str | None = None) -> str:
         record = db.query(PlanDocument).filter(PlanDocument.id == record_id).first()
         if not record:
             raise FileNotFoundError(f"PlanDocument id={record_id} not found")
+        validate_parser_file(parser_provider, record.file_name)
         tmp_path = self._download_to_temp(record)
         try:
-            sections = self._parser.parse_sections(tmp_path, record.file_name)
+            parser = get_parser(parser_provider)
+            sections = parser.parse_sections(tmp_path, record.file_name)
             return "\n".join(_sections_to_toc_lines(sections))
         finally:
             os.unlink(tmp_path)

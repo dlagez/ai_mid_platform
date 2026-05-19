@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     minio_bucket_documents: str = "documents"
     minio_bucket_indexes: str = "rag-indexes"
 
+    document_parser_provider: str = "ppocr"
+
     docling_base_url: str | None = None
     docling_convert_endpoint: str = "/v1/convert/file"
     docling_legacy_convert_endpoint: str = "/v1alpha/convert/file"
@@ -18,6 +20,15 @@ class Settings(BaseSettings):
     docling_api_key: str | None = None
     docling_api_key_header: str = "Authorization"
     docling_timeout_seconds: int = 300
+
+    ppocr_base_url: str | None = None
+    ppocr_layout_parsing_endpoint: str = "/layout-parsing"
+    ppocr_api_key: str | None = None
+    ppocr_api_key_header: str = "Authorization"
+    ppocr_timeout_seconds: int = 300
+    ppocr_format_block_content: bool = True
+    ppocr_use_seal_recognition: bool = True
+    ppocr_use_ocr_for_image_block: bool = True
 
     jwt_secret_key: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"

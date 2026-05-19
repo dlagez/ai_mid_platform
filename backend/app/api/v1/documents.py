@@ -2,17 +2,30 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.models import PlanDocument, PlanSection
 from app.db.session import get_db
+from app.parsers.factory import ParserConfigError, ParserUnsupportedFileError, get_parser, validate_parser_file
 from app.services.document_service import DocumentService, get_document_service
 from app.utils.exceptions import PlatformError
 from app.utils.jwt import CurrentUser, require_permission
 
 router = APIRouter()
+
+SUPPORTED_PLAN_FILE_EXTENSIONS = (
+    ".docx",
+    ".pdf",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".bmp",
+    ".tif",
+    ".tiff",
+    ".webp",
+)
 
 
 class DocumentItem(BaseModel):
@@ -60,11 +73,13 @@ async def upload_document(
     db: Annotated[Session, Depends(get_db)],
     background_tasks: BackgroundTasks,
     file: Annotated[UploadFile, File()],
+    parser: Annotated[str | None, Form()] = None,
 ) -> DocumentUploadResponse:
-    if not (file.filename or "").lower().endswith((".docx", ".pdf")):
-        raise PlatformError("Only .docx and .pdf files are supported.", status_code=400)
+    if not (file.filename or "").lower().endswith(SUPPORTED_PLAN_FILE_EXTENSIONS):
+        raise PlatformError("Only .docx, .pdf, and image files are supported.", status_code=400)
+    _validate_parser(parser, file.filename or "")
     record = await service.upload(db, file, current_user.username)
-    background_tasks.add_task(service.parse_in_background, record.id)
+    background_tasks.add_task(service.parse_in_background, record.id, parser)
     return DocumentUploadResponse(id=record.id, file_name=record.file_name, status=record.parse_status)
 
 
@@ -94,11 +109,15 @@ async def parse_document(
     _: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
     service: Annotated[DocumentService, Depends(get_document_service)],
     db: Annotated[Session, Depends(get_db)],
+    parser: Annotated[str | None, Query()] = None,
 ) -> DocumentParseResponse:
     record = db.query(PlanDocument).filter(PlanDocument.id == record_id).first()
     if not record:
         raise PlatformError(f"Document id={record_id} not found", status_code=404)
-    record = service.parse(db, record_id)
+    try:
+        record = service.parse(db, record_id, parser)
+    except (ParserConfigError, ParserUnsupportedFileError) as exc:
+        raise PlatformError(str(exc), status_code=400) from exc
     sections = service.get_sections(db, record_id)
     return DocumentParseResponse(
         id=record.id,
@@ -157,3 +176,12 @@ def _build_section_tree(sections: list[PlanSection]) -> list[SectionItem]:
 
 def _sections_to_toc_text(sections: list[PlanSection]) -> str:
     return "\n".join(f"{'  ' * max(section.level - 1, 0)}{section.title}" for section in sections)
+
+
+def _validate_parser(parser: str | None, file_name: str | None = None) -> None:
+    try:
+        get_parser(parser)
+        if file_name:
+            validate_parser_file(parser, file_name)
+    except (ParserConfigError, ParserUnsupportedFileError) as exc:
+        raise PlatformError(str(exc), status_code=400) from exc
