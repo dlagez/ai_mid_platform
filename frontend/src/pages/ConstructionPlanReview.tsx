@@ -21,6 +21,7 @@ import {
   FileTextOutlined,
   ReloadOutlined,
 } from "@ant-design/icons";
+import { PdfPreviewModal } from "../components/PdfPreviewModal";
 import {
   getDocumentSections,
   listDocuments,
@@ -30,6 +31,7 @@ import {
   type DocumentParseResult,
   type DocumentRecord,
 } from "../services/documentService";
+import { fetchPdfPreviewUrl } from "../services/filePreviewService";
 
 export const ConstructionPlanReviewPage = () => {
   const [files, setFiles] = useState<DocumentRecord[]>([]);
@@ -37,6 +39,7 @@ export const ConstructionPlanReviewPage = () => {
   const [parsed, setParsed] = useState<DocumentParseResult | null>(null);
   const [selectedSection, setSelectedSection] = useState<PlanSection | null>(null);
   const [loading, setLoading] = useState({ files: false, upload: false, parse: false });
+  const [pdfPreview, setPdfPreview] = useState({ open: false, title: "", url: "" });
 
   const refreshFiles = async () => {
     setLoading((s) => ({ ...s, files: true }));
@@ -115,6 +118,15 @@ export const ConstructionPlanReviewPage = () => {
     }
   };
 
+  const handlePreviewPdf = async (record: DocumentRecord) => {
+    try {
+      const url = await fetchPdfPreviewUrl(`/documents/${record.id}/preview`);
+      setPdfPreview({ open: true, title: record.file_name, url });
+    } catch {
+      message.error("PDF preview failed.");
+    }
+  };
+
   return (
     <div className="page">
       <div className="page-heading">
@@ -157,7 +169,19 @@ export const ConstructionPlanReviewPage = () => {
               dataSource={files}
               pagination={{ pageSize: 8 }}
               columns={[
-                { title: "File Name", dataIndex: "file_name", ellipsis: true },
+                {
+                  title: "File Name",
+                  dataIndex: "file_name",
+                  ellipsis: true,
+                  render: (value: string, record) =>
+                    isPdf(value) ? (
+                      <Button type="link" size="small" className="table-link-button" onClick={() => void handlePreviewPdf(record)}>
+                        {value}
+                      </Button>
+                    ) : (
+                      value
+                    ),
+                },
                 {
                   title: "Status",
                   dataIndex: "parse_status",
@@ -259,6 +283,12 @@ export const ConstructionPlanReviewPage = () => {
           </Card>
         </Col>
       </Row>
+      <PdfPreviewModal
+        title={pdfPreview.title}
+        url={pdfPreview.url}
+        open={pdfPreview.open}
+        onClose={() => setPdfPreview({ open: false, title: "", url: "" })}
+      />
     </div>
   );
 };
@@ -297,6 +327,8 @@ const formatFileSize = (size: number) => {
   }
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 };
+
+const isPdf = (fileName: string) => fileName.toLowerCase().endsWith(".pdf");
 
 const ParseStatusTag = ({ status }: { status: string }) => {
   const color = status === "parsed" ? "green" : status === "failed" ? "red" : "blue";

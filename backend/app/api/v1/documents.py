@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -147,6 +149,27 @@ async def get_document_sections(
         parse_status=record.parse_status,
         toc_text=_sections_to_toc_text(sections),
         sections=_build_section_tree(sections),
+    )
+
+
+@router.get("/{record_id}/preview")
+async def preview_document_pdf(
+    record_id: int,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    service: Annotated[DocumentService, Depends(get_document_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    record = db.query(PlanDocument).filter(PlanDocument.id == record_id).first()
+    if not record:
+        raise PlatformError(f"Document id={record_id} not found", status_code=404)
+    if not record.file_name.lower().endswith(".pdf"):
+        raise PlatformError("Only PDF preview is supported.", status_code=400)
+    content = service.get_file_bytes(record)
+    encoded_name = quote(record.file_name)
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{encoded_name}"},
     )
 
 

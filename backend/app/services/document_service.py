@@ -108,6 +108,15 @@ class DocumentService:
             .all()
         )
 
+    def get_file_bytes(self, record: PlanDocument) -> bytes:
+        object_name = record.file_path.split("/", 1)[1]
+        response = self._minio.get_object(self._bucket, object_name)
+        try:
+            return response.read()
+        finally:
+            response.close()
+            response.release_conn()
+
     def get_toc_text(self, db: Session, record_id: int, parser_provider: str | None = None) -> str:
         record = db.query(PlanDocument).filter(PlanDocument.id == record_id).first()
         if not record:

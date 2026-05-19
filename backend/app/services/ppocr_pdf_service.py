@@ -130,6 +130,14 @@ class PPOcrPdfService:
             response.close()
             response.release_conn()
 
+    def get_source_pdf(self, job: ParseJob) -> bytes:
+        response = self._minio.get_object(self._bucket, _object_name(job.source_file_path))
+        try:
+            return response.read()
+        finally:
+            response.close()
+            response.release_conn()
+
     def get_markdown_maps(self, db: Session, job_id: int) -> list[DocumentMarkdownMap]:
         return (
             db.query(DocumentMarkdownMap)

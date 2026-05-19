@@ -1,6 +1,8 @@
 from typing import Annotated, Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from app.services.knowledge_service import KnowledgeService, get_knowledge_service
@@ -216,6 +218,27 @@ async def list_knowledge_raw_files(
     kb_name: str | None = None,
 ) -> KnowledgeRawFilesResponse:
     return KnowledgeRawFilesResponse(**service.raw_files(kb_name=kb_name))
+
+
+@router.get("/files/preview")
+async def preview_knowledge_raw_pdf(
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    service: Annotated[KnowledgeService, Depends(get_knowledge_service)],
+    kb_name: str | None = None,
+    relative_path: str | None = None,
+) -> Response:
+    if not relative_path:
+        raise PlatformError("relative_path is required.", status_code=400)
+    try:
+        file_path, content = service.get_raw_pdf(kb_name, relative_path)
+    except FileNotFoundError as exc:
+        raise PlatformError(str(exc), status_code=404) from exc
+    encoded_name = quote(file_path.name)
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{encoded_name}"},
+    )
 
 
 @router.get("/status", response_model=KnowledgeStatusResponse)

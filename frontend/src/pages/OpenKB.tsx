@@ -29,6 +29,8 @@ import {
   SearchOutlined,
   SendOutlined,
 } from "@ant-design/icons";
+import { PdfPreviewModal } from "../components/PdfPreviewModal";
+import { fetchPdfPreviewUrl } from "../services/filePreviewService";
 import {
   addKnowledgePath,
   chatKnowledge,
@@ -94,6 +96,7 @@ export const OpenKBPage = () => {
   const [rawFiles, setRawFiles] = useState<KnowledgeRawFiles | null>(null);
   const [selectedRawFileKeys, setSelectedRawFileKeys] = useState<Key[]>([]);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
+  const [pdfPreview, setPdfPreview] = useState({ open: false, title: "", url: "" });
   const [loading, setLoading] = useState({
     status: false,
     add: false,
@@ -179,6 +182,18 @@ export const OpenKBPage = () => {
       message.error(getErrorStatus(error) === 401 ? "Session expired. Login again." : "OpenKB upload failed.");
     } finally {
       setLoading((current) => ({ ...current, add: false }));
+    }
+  };
+
+  const handlePreviewRawPdf = async (file: KnowledgeRawFile) => {
+    try {
+      const url = await fetchPdfPreviewUrl("/knowledge/files/preview", {
+        kb_name: activeKbName,
+        relative_path: file.relative_path,
+      });
+      setPdfPreview({ open: true, title: file.name, url });
+    } catch {
+      message.error("PDF preview failed.");
     }
   };
 
@@ -420,6 +435,19 @@ export const OpenKBPage = () => {
                     title: "Raw File",
                     dataIndex: "name",
                     ellipsis: true,
+                    render: (value: string, row) =>
+                      isPdf(value) ? (
+                        <Button
+                          type="link"
+                          size="small"
+                          className="table-link-button"
+                          onClick={() => void handlePreviewRawPdf(row)}
+                        >
+                          {value}
+                        </Button>
+                      ) : (
+                        value
+                      ),
                   },
                   {
                     title: "State",
@@ -592,6 +620,14 @@ export const OpenKBPage = () => {
           </Space>
         </Col>
       </Row>
+      <PdfPreviewModal
+        title={pdfPreview.title}
+        url={pdfPreview.url}
+        open={pdfPreview.open}
+        onClose={() => setPdfPreview({ open: false, title: "", url: "" })}
+      />
     </div>
   );
 };
+
+const isPdf = (fileName: string) => fileName.toLowerCase().endsWith(".pdf");

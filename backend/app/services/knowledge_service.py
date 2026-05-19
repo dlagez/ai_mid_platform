@@ -58,6 +58,16 @@ class KnowledgeService:
     def save_upload(self, filename: str, content: bytes, kb_name: str | None = None) -> Path:
         return self.openkb.save_upload(filename, content, kb_name=kb_name)
 
+    def get_raw_pdf(self, kb_name: str | None, relative_path: str) -> tuple[Path, bytes]:
+        kb_dir = self.openkb._ensure_kb(kb_name)  # noqa: SLF001
+        raw_dir = (kb_dir / "raw").resolve()
+        file_path = (raw_dir / relative_path).resolve()
+        if raw_dir != file_path and raw_dir not in file_path.parents:
+            raise FileNotFoundError("Raw file is outside the knowledge base raw directory.")
+        if not file_path.exists() or not file_path.is_file() or file_path.suffix.lower() != ".pdf":
+            raise FileNotFoundError("PDF raw file not found.")
+        return file_path, file_path.read_bytes()
+
 
 def get_knowledge_service() -> KnowledgeService:
     return KnowledgeService()

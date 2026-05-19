@@ -21,6 +21,8 @@ import {
   InboxOutlined,
   ReloadOutlined,
 } from "@ant-design/icons";
+import { PdfPreviewModal } from "../components/PdfPreviewModal";
+import { fetchPdfPreviewUrl } from "../services/filePreviewService";
 import {
   createPPOcrPdfJob,
   getPPOcrPdfJob,
@@ -38,6 +40,7 @@ export const UtilsPPOcrPage = () => {
   const [selectedDetail, setSelectedDetail] = useState<PPOcrPdfJobDetail | null>(null);
   const [markdown, setMarkdown] = useState("");
   const [loading, setLoading] = useState({ jobs: false, upload: false, detail: false, markdown: false, retry: false });
+  const [pdfPreview, setPdfPreview] = useState({ open: false, title: "", url: "" });
 
   const refreshJobs = async () => {
     setLoading((s) => ({ ...s, jobs: true }));
@@ -128,6 +131,15 @@ export const UtilsPPOcrPage = () => {
     }
   };
 
+  const handlePreviewPdf = async (job: PPOcrPdfJob) => {
+    try {
+      const url = await fetchPdfPreviewUrl(`/utils/ppocr/pdf/jobs/${job.id}/source`);
+      setPdfPreview({ open: true, title: job.file_name, url });
+    } catch {
+      message.error("PDF preview failed.");
+    }
+  };
+
   return (
     <div className="page">
       <div className="page-heading">
@@ -173,7 +185,16 @@ export const UtilsPPOcrPage = () => {
               dataSource={jobs}
               pagination={{ pageSize: 8 }}
               columns={[
-                { title: "File", dataIndex: "file_name", ellipsis: true },
+                {
+                  title: "File",
+                  dataIndex: "file_name",
+                  ellipsis: true,
+                  render: (value: string, job) => (
+                    <Button type="link" size="small" className="table-link-button" onClick={() => void handlePreviewPdf(job)}>
+                      {value}
+                    </Button>
+                  ),
+                },
                 {
                   title: "Status",
                   dataIndex: "status",
@@ -224,7 +245,22 @@ export const UtilsPPOcrPage = () => {
         </Col>
 
         <Col xs={24} xl={14}>
-          <Card title={selectedDetail?.job.file_name ?? "Job Detail"} loading={loading.detail}>
+          <Card
+            title={
+              selectedDetail ? (
+                <Button
+                  type="link"
+                  className="table-link-button"
+                  onClick={() => void handlePreviewPdf(selectedDetail.job)}
+                >
+                  {selectedDetail.job.file_name}
+                </Button>
+              ) : (
+                "Job Detail"
+              )
+            }
+            loading={loading.detail}
+          >
             {selectedDetail ? (
               <Space direction="vertical" size={16} style={{ width: "100%" }}>
                 <Space wrap>
@@ -316,6 +352,12 @@ export const UtilsPPOcrPage = () => {
           </Card>
         </Col>
       </Row>
+      <PdfPreviewModal
+        title={pdfPreview.title}
+        url={pdfPreview.url}
+        open={pdfPreview.open}
+        onClose={() => setPdfPreview({ open: false, title: "", url: "" })}
+      />
     </div>
   );
 };

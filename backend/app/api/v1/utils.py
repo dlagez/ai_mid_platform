@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from typing import Annotated, Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -244,6 +246,25 @@ async def get_ppocr_pdf_markdown(
         job=ParseJobItem(**parse_job_to_dict(job)),
         markdown=service.get_markdown(job),
         markdown_maps=[MarkdownMapItem(**markdown_map_to_dict(item)) for item in maps],
+    )
+
+
+@router.get("/ppocr/pdf/jobs/{job_id}/source")
+async def preview_ppocr_pdf_source(
+    job_id: int,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    service: Annotated[PPOcrPdfService, Depends(get_ppocr_pdf_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    job = service.get_job(db, job_id)
+    if not job:
+        raise PlatformError(f"Parse job id={job_id} not found", status_code=404)
+    content = service.get_source_pdf(job)
+    encoded_name = quote(job.file_name)
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{encoded_name}"},
     )
 
 
