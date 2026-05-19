@@ -16,3 +16,6 @@ celery_app = Celery(
 def run_platform_task(task_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     sleep(1)
     return {"task_type": task_type, "payload": payload, "message": "Task completed"}
+
+
+from app.workers import ppocr_pdf_tasks  # noqa: E402,F401

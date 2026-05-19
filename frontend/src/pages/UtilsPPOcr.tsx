@@ -4,6 +4,7 @@ import {
   Card,
   Col,
   Empty,
+  Progress,
   Row,
   Space,
   Table,
@@ -21,137 +22,183 @@ import {
   ReloadOutlined,
 } from "@ant-design/icons";
 import {
-  getPPOcrMarkdown,
-  listPPOcrRecords,
-  parsePPOcrFile,
-  type UtilityParseRecord,
+  createPPOcrPdfJob,
+  getPPOcrPdfJob,
+  getPPOcrPdfMarkdown,
+  listPPOcrPdfJobs,
+  retryPPOcrPdfPage,
+  type PPOcrPdfJob,
+  type PPOcrPdfJobDetail,
+  type PPOcrPdfPage,
 } from "../services/utilsService";
 
 export const UtilsPPOcrPage = () => {
-  const [records, setRecords] = useState<UtilityParseRecord[]>([]);
+  const [jobs, setJobs] = useState<PPOcrPdfJob[]>([]);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
-  const [selectedRecord, setSelectedRecord] = useState<UtilityParseRecord | null>(null);
+  const [selectedDetail, setSelectedDetail] = useState<PPOcrPdfJobDetail | null>(null);
   const [markdown, setMarkdown] = useState("");
-  const [loading, setLoading] = useState({ records: false, parse: false, markdown: false });
+  const [loading, setLoading] = useState({ jobs: false, upload: false, detail: false, markdown: false, retry: false });
 
-  const refreshRecords = async () => {
-    setLoading((s) => ({ ...s, records: true }));
+  const refreshJobs = async () => {
+    setLoading((s) => ({ ...s, jobs: true }));
     try {
-      setRecords(await listPPOcrRecords());
+      const nextJobs = await listPPOcrPdfJobs();
+      setJobs(nextJobs);
+      if (selectedDetail) {
+        const updated = nextJobs.find((job) => job.id === selectedDetail.job.id);
+        if (updated) {
+          const detail = await getPPOcrPdfJob(updated.id);
+          setSelectedDetail(detail);
+          if (["success", "partial_success", "failed"].includes(detail.job.status)) {
+            const result = await getPPOcrPdfMarkdown(detail.job.id);
+            setMarkdown(result.markdown);
+          }
+        }
+      }
     } catch {
-      message.error("Failed to load PPOCR records.");
+      message.error("Failed to load PPOCR jobs.");
     } finally {
-      setLoading((s) => ({ ...s, records: false }));
+      setLoading((s) => ({ ...s, jobs: false }));
     }
   };
 
   useEffect(() => {
-    void refreshRecords();
+    void refreshJobs();
   }, []);
 
-  const handleParse = async () => {
+  useEffect(() => {
+    if (!jobs.some((job) => ["queued", "running"].includes(job.status))) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => {
+      void refreshJobs();
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [jobs, selectedDetail]);
+
+  const handleUpload = async () => {
     const originFile = fileList[0]?.originFileObj;
     if (!originFile) {
-      message.warning("Select a PDF or image file first.");
+      message.warning("Select a PDF first.");
       return;
     }
-    setLoading((s) => ({ ...s, parse: true }));
+    setLoading((s) => ({ ...s, upload: true }));
     try {
-      const result = await parsePPOcrFile(originFile);
-      setSelectedRecord(result.record);
-      setMarkdown(result.markdown);
+      const job = await createPPOcrPdfJob(originFile);
       setFileList([]);
-      await refreshRecords();
-      message.success("PPOCR parse completed.");
+      await refreshJobs();
+      await handleViewJob(job.id);
+      message.success("PDF uploaded. Page OCR tasks queued.");
     } catch {
-      message.error("PPOCR parse failed.");
-      await refreshRecords();
+      message.error("Failed to create PPOCR PDF job.");
     } finally {
-      setLoading((s) => ({ ...s, parse: false }));
+      setLoading((s) => ({ ...s, upload: false }));
     }
   };
 
-  const handleViewMarkdown = async (record: UtilityParseRecord) => {
-    setLoading((s) => ({ ...s, markdown: true }));
+  const handleViewJob = async (jobId: number) => {
+    setLoading((s) => ({ ...s, detail: true }));
     try {
-      const result = await getPPOcrMarkdown(record.id);
-      setSelectedRecord(result.record);
-      setMarkdown(result.markdown);
+      const detail = await getPPOcrPdfJob(jobId);
+      setSelectedDetail(detail);
+      if (["success", "partial_success", "failed"].includes(detail.job.status)) {
+        const result = await getPPOcrPdfMarkdown(jobId);
+        setMarkdown(result.markdown);
+      } else {
+        setMarkdown("");
+      }
     } catch {
-      message.error("Failed to load markdown.");
+      message.error("Failed to load job detail.");
     } finally {
-      setLoading((s) => ({ ...s, markdown: false }));
+      setLoading((s) => ({ ...s, detail: false }));
+    }
+  };
+
+  const handleRetryPage = async (page: PPOcrPdfPage) => {
+    setLoading((s) => ({ ...s, retry: true }));
+    try {
+      await retryPPOcrPdfPage(page.job_id, page.page_no);
+      await handleViewJob(page.job_id);
+      await refreshJobs();
+      message.success(`Page ${page.page_no} retry queued.`);
+    } catch {
+      message.error("Failed to retry page.");
+    } finally {
+      setLoading((s) => ({ ...s, retry: false }));
     }
   };
 
   return (
     <div className="page">
       <div className="page-heading">
-        <h1>PPOCR</h1>
-        <Button icon={<ReloadOutlined />} loading={loading.records} onClick={() => void refreshRecords()}>
+        <h1>PPOCR PDF</h1>
+        <Button icon={<ReloadOutlined />} loading={loading.jobs} onClick={() => void refreshJobs()}>
           Refresh
         </Button>
       </div>
 
       <Row gutter={[16, 16]}>
-        <Col xs={24} xl={9}>
-          <Card title="Upload">
+        <Col xs={24} xl={10}>
+          <Card title="Upload PDF">
             <Space direction="vertical" size={12} style={{ width: "100%" }}>
               <Upload.Dragger
                 beforeUpload={() => false}
                 fileList={fileList}
                 maxCount={1}
-                accept=".pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff,.webp"
+                accept=".pdf"
                 onChange={({ fileList: next }) => setFileList(next)}
               >
                 <p className="ant-upload-drag-icon">
                   <InboxOutlined />
                 </p>
-                <p className="ant-upload-text">Select PDF or image</p>
+                <p className="ant-upload-text">Select PDF</p>
               </Upload.Dragger>
               <Button
                 type="primary"
                 block
-                loading={loading.parse}
+                loading={loading.upload}
                 icon={<CloudUploadOutlined />}
-                onClick={() => void handleParse()}
+                onClick={() => void handleUpload()}
               >
-                Upload and Parse
+                Upload and Queue OCR
               </Button>
             </Space>
           </Card>
 
-          <Card title="Records" style={{ marginTop: 16 }}>
-            <Table<UtilityParseRecord>
+          <Card title="Parse Jobs" style={{ marginTop: 16 }}>
+            <Table<PPOcrPdfJob>
               rowKey="id"
               size="small"
-              loading={loading.records}
-              dataSource={records}
+              loading={loading.jobs}
+              dataSource={jobs}
               pagination={{ pageSize: 8 }}
               columns={[
-                { title: "Source", dataIndex: "source_file_name", ellipsis: true },
+                { title: "File", dataIndex: "file_name", ellipsis: true },
                 {
                   title: "Status",
-                  dataIndex: "parse_status",
-                  width: 92,
+                  dataIndex: "status",
+                  width: 116,
                   render: (value: string) => <ParseStatusTag status={value} />,
                 },
                 {
-                  title: "Method",
-                  dataIndex: "parser_provider",
-                  width: 82,
-                  render: (value: string) => <Tag color="blue">{value}</Tag>,
+                  title: "Progress",
+                  width: 110,
+                  render: (_, job) => (
+                    <Progress
+                      size="small"
+                      percent={job.page_count ? Math.round(((job.succeeded_pages + job.failed_pages) / job.page_count) * 100) : 0}
+                    />
+                  ),
                 },
                 {
                   title: "",
-                  width: 86,
-                  render: (_, record) => (
+                  width: 76,
+                  render: (_, job) => (
                     <Button
                       size="small"
                       icon={<EyeOutlined />}
-                      disabled={!record.parsed}
-                      loading={loading.markdown && selectedRecord?.id === record.id}
-                      onClick={() => void handleViewMarkdown(record)}
+                      loading={loading.detail && selectedDetail?.job.id === job.id}
+                      onClick={() => void handleViewJob(job.id)}
                     >
                       View
                     </Button>
@@ -159,13 +206,16 @@ export const UtilsPPOcrPage = () => {
                 },
               ]}
               expandable={{
-                expandedRowRender: (record) => (
+                expandedRowRender: (job) => (
                   <Space direction="vertical" size={2}>
-                    <Typography.Text type="secondary">Markdown: {record.parsed_file_name ?? "-"}</Typography.Text>
-                    <Typography.Text type="secondary">Uploaded: {formatDate(record.created_at)}</Typography.Text>
-                    {record.error_message ? (
-                      <Typography.Text type="danger">Error: {record.error_message}</Typography.Text>
-                    ) : null}
+                    <Typography.Text type="secondary">
+                      Pages: {job.succeeded_pages}/{job.page_count} success, {job.failed_pages} failed
+                    </Typography.Text>
+                    <Typography.Text type="secondary">
+                      Confidence: {formatConfidence(job.avg_confidence)} / Low quality pages: {job.low_confidence_pages}
+                    </Typography.Text>
+                    <Typography.Text type="secondary">Markdown: {job.result_markdown_path ?? "-"}</Typography.Text>
+                    {job.error_message ? <Typography.Text type="danger">{job.error_message}</Typography.Text> : null}
                   </Space>
                 ),
               }}
@@ -173,20 +223,96 @@ export const UtilsPPOcrPage = () => {
           </Card>
         </Col>
 
-        <Col xs={24} xl={15}>
+        <Col xs={24} xl={14}>
+          <Card title={selectedDetail?.job.file_name ?? "Job Detail"} loading={loading.detail}>
+            {selectedDetail ? (
+              <Space direction="vertical" size={16} style={{ width: "100%" }}>
+                <Space wrap>
+                  <ParseStatusTag status={selectedDetail.job.status} />
+                  <Tag>{selectedDetail.job.page_count} pages</Tag>
+                  <Tag>DPI {selectedDetail.job.dpi}</Tag>
+                  <Tag>Batch {selectedDetail.job.batch_size}</Tag>
+                  <Tag color={selectedDetail.job.low_confidence_flag ? "orange" : "green"}>
+                    avg {formatConfidence(selectedDetail.job.avg_confidence)}
+                  </Tag>
+                </Space>
+                <Table<PPOcrPdfPage>
+                  rowKey="id"
+                  size="small"
+                  dataSource={selectedDetail.pages}
+                  pagination={{ pageSize: 8 }}
+                  columns={[
+                    { title: "Page", dataIndex: "page_no", width: 70 },
+                    {
+                      title: "Status",
+                      dataIndex: "status",
+                      width: 116,
+                      render: (value: string) => <ParseStatusTag status={value} />,
+                    },
+                    {
+                      title: "Blocks",
+                      dataIndex: "block_count",
+                      width: 76,
+                    },
+                    {
+                      title: "Confidence",
+                      dataIndex: "average_confidence",
+                      width: 110,
+                      render: (value: number | null, page) => (
+                        <Tag color={page.low_confidence_flag ? "orange" : "green"}>{formatConfidence(value)}</Tag>
+                      ),
+                    },
+                    { title: "Retries", dataIndex: "retry_count", width: 82 },
+                    {
+                      title: "",
+                      width: 84,
+                      render: (_, page) => (
+                        <Button
+                          size="small"
+                          disabled={page.status === "running"}
+                          loading={loading.retry}
+                          onClick={() => void handleRetryPage(page)}
+                        >
+                          Retry
+                        </Button>
+                      ),
+                    },
+                  ]}
+                  expandable={{
+                    expandedRowRender: (page) => (
+                      <pre className="page-markdown-preview">
+                        {page.markdown_content || page.text || page.error_message || "No page content"}
+                      </pre>
+                    ),
+                  }}
+                />
+              </Space>
+            ) : (
+              <Empty description="Select a parse job" />
+            )}
+          </Card>
+
           <Card
+            style={{ marginTop: 16 }}
             title={
               <Space>
                 <FileMarkdownOutlined />
-                <span>{selectedRecord?.parsed_file_name ?? "Markdown"}</span>
+                <span>Document Markdown</span>
               </Space>
             }
+            extra={
+              selectedDetail?.job.result_markdown_path ? (
+                <Button
+                  size="small"
+                  loading={loading.markdown}
+                  onClick={() => void handleViewJob(selectedDetail.job.id)}
+                >
+                  Reload
+                </Button>
+              ) : null
+            }
           >
-            {markdown ? (
-              <pre className="markdown-preview">{markdown}</pre>
-            ) : (
-              <Empty description="No markdown selected" />
-            )}
+            {markdown ? <pre className="markdown-preview">{markdown}</pre> : <Empty description="Markdown is generated after pages finish" />}
           </Card>
         </Col>
       </Row>
@@ -195,13 +321,20 @@ export const UtilsPPOcrPage = () => {
 };
 
 const ParseStatusTag = ({ status }: { status: string }) => {
-  const color = status === "parsed" ? "green" : status === "failed" ? "red" : "blue";
+  const color =
+    status === "success" || status === "parsed"
+      ? "green"
+      : status === "partial_success"
+        ? "orange"
+        : status === "failed"
+          ? "red"
+          : "blue";
   return <Tag color={color}>{status}</Tag>;
 };
 
-const formatDate = (value: string | null) => {
-  if (!value) {
+const formatConfidence = (value: number | null) => {
+  if (value === null || value === undefined) {
     return "-";
   }
-  return new Date(value).toLocaleString();
+  return value.toFixed(3);
 };

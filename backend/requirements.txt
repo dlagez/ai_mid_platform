@@ -3,6 +3,7 @@ docling-slim==2.93.0
 openpyxl==3.1.5
 pylatexenc==2.10
 python-docx==1.2.0
+PyMuPDF==1.27.2
 alembic==1.13.3
 celery==5.4.0
 fastapi==0.115.0

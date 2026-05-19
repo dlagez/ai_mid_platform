@@ -14,10 +14,16 @@ class Settings(BaseSettings):
     document_parser_provider: str = "ppocr"
 
     ppocr_base_url: str | None = None
+    ppocr_ocr_endpoint: str = "/ocr"
     ppocr_layout_parsing_endpoint: str = "/layout-parsing"
     ppocr_api_key: str | None = None
     ppocr_api_key_header: str = "Authorization"
     ppocr_timeout_seconds: int = 300
+    ppocr_page_timeout_seconds: int = 120
+    ppocr_pdf_dpi: int = 180
+    ppocr_pdf_batch_size: int = 10
+    ppocr_pdf_min_confidence: float = 0.75
+    ppocr_pdf_max_retries: int = 2
     ppocr_format_block_content: bool = True
     ppocr_use_seal_recognition: bool = True
     ppocr_use_ocr_for_image_block: bool = True

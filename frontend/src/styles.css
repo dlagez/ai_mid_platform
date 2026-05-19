@@ -110,6 +110,20 @@ body {
   word-break: break-word;
 }
 
+.page-markdown-preview {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #e8edf3;
+  border-radius: 8px;
+  background: #fbfcfe;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .openkb-command-panel {
   display: grid;
   grid-template-columns: minmax(420px, 1fr) minmax(260px, 0.8fr);

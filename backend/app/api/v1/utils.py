@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, UploadFile
 from pydantic import BaseModel
@@ -10,6 +10,13 @@ from app.db.models import UtilityParseRecord
 from app.db.session import get_db
 from app.parsers.factory import ParserConfigError, ParserUnsupportedFileError
 from app.parsers.ppocr import PPOcrParseError
+from app.services.ppocr_pdf_service import (
+    PPOcrPdfService,
+    get_ppocr_pdf_service,
+    markdown_map_to_dict,
+    parse_job_to_dict,
+    parse_page_to_dict,
+)
 from app.services.utility_parse_service import UtilityParseService, get_utility_parse_service
 from app.utils.exceptions import PlatformError
 from app.utils.jwt import CurrentUser, require_permission
@@ -40,6 +47,86 @@ class UtilityParseRecordItem(BaseModel):
 class PPOcrParseResponse(BaseModel):
     record: UtilityParseRecordItem
     markdown: str
+
+
+class ParseJobItem(BaseModel):
+    id: int
+    file_id: str
+    file_name: str
+    file_size: int
+    file_hash: str
+    page_count: int
+    source_file_path: str
+    parser_provider: str
+    parse_mode: str
+    ocr_endpoint: str
+    status: str
+    dpi: int
+    batch_size: int
+    page_timeout_seconds: int
+    min_confidence: float
+    low_confidence_flag: bool
+    total_pages: int
+    succeeded_pages: int
+    failed_pages: int
+    low_confidence_pages: int
+    avg_confidence: float | None
+    block_count: int
+    metadata: dict[str, Any]
+    error_message: str | None
+    result_markdown_path: str | None
+    result_json_path: str | None
+    raw_result_path: str | None
+    created_by: str
+    created_at: str | None
+    started_at: str | None
+    completed_at: str | None
+
+
+class ParsePageItem(BaseModel):
+    id: int
+    job_id: int
+    page_no: int
+    status: str
+    image_path: str | None
+    raw_json_path: str | None
+    text: str
+    markdown_content: str
+    rec_texts: list[Any]
+    rec_scores: list[Any]
+    rec_polys: list[Any]
+    average_confidence: float | None
+    min_confidence: float | None
+    block_count: int
+    low_confidence_flag: bool
+    retry_count: int
+    error_message: str | None
+    started_at: str | None
+    completed_at: str | None
+
+
+class MarkdownMapItem(BaseModel):
+    id: int
+    job_id: int
+    page_result_id: int
+    page_no: int
+    markdown_start: int
+    markdown_end: int
+    anchor: str
+    block_count: int
+    created_at: str | None
+
+
+class ParseJobDetail(BaseModel):
+    job: ParseJobItem
+    pages: list[ParsePageItem]
+    markdown_maps: list[MarkdownMapItem] = []
+
+
+class ParseJobMarkdownResponse(BaseModel):
+    job: ParseJobItem
+    markdown: str
+    markdown_maps: list[MarkdownMapItem]
 
 
 @router.post("/ppocr/parse", response_model=PPOcrParseResponse)
@@ -99,3 +186,77 @@ def _to_record_item(record: UtilityParseRecord) -> UtilityParseRecordItem:
         created_at=record.created_at.isoformat() if record.created_at else "",
         completed_at=record.completed_at.isoformat() if record.completed_at else None,
     )
+
+
+@router.post("/ppocr/pdf/jobs", response_model=ParseJobItem)
+async def create_ppocr_pdf_job(
+    current_user: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
+    service: Annotated[PPOcrPdfService, Depends(get_ppocr_pdf_service)],
+    db: Annotated[Session, Depends(get_db)],
+    file: Annotated[UploadFile, File()],
+) -> ParseJobItem:
+    try:
+        job = await service.create_pdf_job(db, file, current_user.username)
+        return ParseJobItem(**parse_job_to_dict(job))
+    except ValueError as exc:
+        raise PlatformError(str(exc), status_code=400) from exc
+
+
+@router.get("/ppocr/pdf/jobs", response_model=list[ParseJobItem])
+async def list_ppocr_pdf_jobs(
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    service: Annotated[PPOcrPdfService, Depends(get_ppocr_pdf_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> list[ParseJobItem]:
+    return [ParseJobItem(**parse_job_to_dict(job)) for job in service.list_jobs(db)]
+
+
+@router.get("/ppocr/pdf/jobs/{job_id}", response_model=ParseJobDetail)
+async def get_ppocr_pdf_job(
+    job_id: int,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    service: Annotated[PPOcrPdfService, Depends(get_ppocr_pdf_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ParseJobDetail:
+    job = service.get_job(db, job_id)
+    if not job:
+        raise PlatformError(f"Parse job id={job_id} not found", status_code=404)
+    maps = service.get_markdown_maps(db, job_id)
+    return ParseJobDetail(
+        job=ParseJobItem(**parse_job_to_dict(job)),
+        pages=[ParsePageItem(**parse_page_to_dict(page)) for page in sorted(job.pages, key=lambda item: item.page_no)],
+        markdown_maps=[MarkdownMapItem(**markdown_map_to_dict(item)) for item in maps],
+    )
+
+
+@router.get("/ppocr/pdf/jobs/{job_id}/markdown", response_model=ParseJobMarkdownResponse)
+async def get_ppocr_pdf_markdown(
+    job_id: int,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    service: Annotated[PPOcrPdfService, Depends(get_ppocr_pdf_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ParseJobMarkdownResponse:
+    job = service.get_job(db, job_id)
+    if not job:
+        raise PlatformError(f"Parse job id={job_id} not found", status_code=404)
+    maps = service.get_markdown_maps(db, job_id)
+    return ParseJobMarkdownResponse(
+        job=ParseJobItem(**parse_job_to_dict(job)),
+        markdown=service.get_markdown(job),
+        markdown_maps=[MarkdownMapItem(**markdown_map_to_dict(item)) for item in maps],
+    )
+
+
+@router.post("/ppocr/pdf/jobs/{job_id}/pages/{page_no}/retry", response_model=ParsePageItem)
+async def retry_ppocr_pdf_page(
+    job_id: int,
+    page_no: int,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
+    service: Annotated[PPOcrPdfService, Depends(get_ppocr_pdf_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ParsePageItem:
+    try:
+        page = service.retry_page(db, job_id, page_no)
+        return ParsePageItem(**parse_page_to_dict(page))
+    except FileNotFoundError as exc:
+        raise PlatformError(str(exc), status_code=404) from exc
