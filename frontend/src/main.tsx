@@ -21,8 +21,10 @@ import {
   AppstoreOutlined,
   DashboardOutlined,
   DatabaseOutlined,
+  FileSearchOutlined,
   FileTextOutlined,
   RobotOutlined,
+  ToolOutlined,
 } from "@ant-design/icons";
 import "@refinedev/antd/dist/reset.css";
 import "./styles.css";
@@ -35,6 +37,7 @@ import { ModelCallPage } from "./pages/ModelCall";
 import { OpenKBPage } from "./pages/OpenKB";
 import { TaskListPage } from "./pages/TaskList";
 import { ConstructionPlanReviewPage } from "./pages/ConstructionPlanReview";
+import { UtilsPPOcrPage } from "./pages/UtilsPPOcr";
 
 const resources = [
   {
@@ -61,6 +64,15 @@ const resources = [
     name: "construction-plan",
     list: "/construction-plan",
     meta: { label: "Review of Construction Plan", icon: <FileTextOutlined /> },
+  },
+  {
+    name: "utils",
+    meta: { label: "Utils", icon: <ToolOutlined /> },
+  },
+  {
+    name: "utils-ppocr",
+    list: "/utils/ppocr",
+    meta: { label: "PPOCR", icon: <FileSearchOutlined />, parent: "utils" },
   },
 ];
 
@@ -101,6 +113,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                 <Route path="/models" element={<ModelCallPage />} />
                 <Route path="/openkb" element={<OpenKBPage />} />
                 <Route path="/construction-plan" element={<ConstructionPlanReviewPage />} />
+                <Route path="/utils/ppocr" element={<UtilsPPOcrPage />} />
                 <Route path="*" element={<ErrorComponent />} />
               </Route>
 

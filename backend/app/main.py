@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1 import auth, documents, knowledge, models, tasks
+from app.api.v1 import auth, documents, knowledge, models, tasks, utils
 from app.services.knowledge_service import KnowledgeService
 from app.utils.exceptions import register_exception_handlers
 from app.utils.langfuse import configure_langfuse_env, flush_langfuse
@@ -26,6 +26,7 @@ def create_app() -> FastAPI:
     app.include_router(tasks.router, prefix="/api/v1/tasks", tags=["tasks"])
     app.include_router(knowledge.router, prefix="/api/v1/knowledge", tags=["knowledge"])
     app.include_router(documents.router, prefix="/api/v1/documents", tags=["documents"])
+    app.include_router(utils.router, prefix="/api/v1/utils", tags=["utils"])
 
     register_exception_handlers(app)
 

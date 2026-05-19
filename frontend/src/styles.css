@@ -94,6 +94,22 @@ body {
   word-break: break-word;
 }
 
+.markdown-preview {
+  min-height: 520px;
+  max-height: calc(100vh - 220px);
+  overflow: auto;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid #e8edf3;
+  border-radius: 8px;
+  background: #fbfcfe;
+  color: #172033;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .openkb-command-panel {
   display: grid;
   grid-template-columns: minmax(420px, 1fr) minmax(260px, 0.8fr);
