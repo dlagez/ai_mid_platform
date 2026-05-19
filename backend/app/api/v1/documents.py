@@ -17,6 +17,8 @@ router = APIRouter()
 
 SUPPORTED_PLAN_FILE_EXTENSIONS = (
     ".docx",
+    ".xlsx",
+    ".csv",
     ".pdf",
     ".png",
     ".jpg",
@@ -76,7 +78,7 @@ async def upload_document(
     parser: Annotated[str | None, Form()] = None,
 ) -> DocumentUploadResponse:
     if not (file.filename or "").lower().endswith(SUPPORTED_PLAN_FILE_EXTENSIONS):
-        raise PlatformError("Only .docx, .pdf, and image files are supported.", status_code=400)
+        raise PlatformError("Only .docx, .xlsx, .csv, .pdf, and image files are supported.", status_code=400)
     _validate_parser(parser, file.filename or "")
     record = await service.upload(db, file, current_user.username)
     background_tasks.add_task(service.parse_in_background, record.id, parser)
@@ -180,7 +182,7 @@ def _sections_to_toc_text(sections: list[PlanSection]) -> str:
 
 def _validate_parser(parser: str | None, file_name: str | None = None) -> None:
     try:
-        get_parser(parser)
+        get_parser(parser, file_name)
         if file_name:
             validate_parser_file(parser, file_name)
     except (ParserConfigError, ParserUnsupportedFileError) as exc:

@@ -72,7 +72,7 @@ class DocumentService:
         try:
             validate_parser_file(parser_provider, record.file_name)
             tmp_path = self._download_to_temp(record)
-            parser = get_parser(parser_provider)
+            parser = get_parser(parser_provider, record.file_name)
             sections = parser.parse_sections(tmp_path, record.file_name)
             db.query(PlanSection).filter(PlanSection.document_id == record.id).delete()
             sort_counter = 1
@@ -115,7 +115,7 @@ class DocumentService:
         validate_parser_file(parser_provider, record.file_name)
         tmp_path = self._download_to_temp(record)
         try:
-            parser = get_parser(parser_provider)
+            parser = get_parser(parser_provider, record.file_name)
             sections = parser.parse_sections(tmp_path, record.file_name)
             return "\n".join(_sections_to_toc_lines(sections))
         finally:

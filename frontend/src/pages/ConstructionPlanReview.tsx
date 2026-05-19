@@ -67,7 +67,7 @@ export const ConstructionPlanReviewPage = () => {
   const handleUpload = async () => {
     const originFile = fileList[0]?.originFileObj;
     if (!originFile) {
-      message.warning("Select a PDF or image file first.");
+      message.warning("Select a Word, Excel, PDF, or image file first.");
       return;
     }
     setLoading((s) => ({ ...s, upload: true }));
@@ -126,16 +126,16 @@ export const ConstructionPlanReviewPage = () => {
 
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={10}>
-          <Card title="Upload PDF/Image Document">
+          <Card title="Upload Document">
             <Space direction="vertical" size={12} style={{ width: "100%" }}>
               <Upload
                 beforeUpload={() => false}
                 fileList={fileList}
                 maxCount={1}
-                accept=".pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff,.webp"
+                accept=".docx,.xlsx,.csv,.pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff,.webp"
                 onChange={({ fileList: next }) => setFileList(next)}
               >
-                <Button icon={<CloudUploadOutlined />}>Select PDF/Image File</Button>
+                <Button icon={<CloudUploadOutlined />}>Select Document File</Button>
               </Upload>
               <Button
                 type="primary"
