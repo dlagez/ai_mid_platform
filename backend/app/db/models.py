@@ -115,7 +115,7 @@ class ParseJob(Base):
     source_file_path: Mapped[str] = mapped_column(String(512))
     parser_provider: Mapped[str] = mapped_column(String(64), default="ppocr", index=True)
     parse_mode: Mapped[str] = mapped_column(String(64), default="page_ocr")
-    ocr_endpoint: Mapped[str] = mapped_column(String(128), default="/ocr")
+    ocr_endpoint: Mapped[str] = mapped_column(String(128), default="/layout-parsing")
     status: Mapped[str] = mapped_column(String(32), default="queued", index=True)
     dpi: Mapped[int] = mapped_column(Integer, default=180)
     batch_size: Mapped[int] = mapped_column(Integer, default=10)

@@ -44,7 +44,7 @@ class PPOcrPageOutput:
 
 
 class PPOcrPageClient:
-    """Calls PP-OCR page-level OCR endpoint.
+    """Calls the configured PP-OCR page-level endpoint.
 
     The PDF pipeline renders each page to PNG first, so the OCR service always
     receives fileType=1. The response normalizer accepts several PP-OCR shapes
@@ -72,12 +72,24 @@ class PPOcrPageClient:
         payload = {
             "file": base64.b64encode(png_bytes).decode("ascii"),
             "fileType": 1,
+            "format_block_content": settings.ppocr_format_block_content,
+            "use_seal_recognition": settings.ppocr_use_seal_recognition,
+            "use_ocr_for_image_block": settings.ppocr_use_ocr_for_image_block,
         }
         raw_json = self._post_json(payload)
         return normalize_ppocr_page_response(raw_json)
 
     def _post_json(self, payload: dict[str, Any]) -> dict[str, Any]:
-        url = urljoin(f"{self._base_url}/", self._ocr_endpoint.lstrip("/"))
+        try:
+            return self._post_json_to_endpoint(self._ocr_endpoint, payload)
+        except PPOcrPageError as exc:
+            fallback_endpoint = settings.ppocr_layout_parsing_endpoint
+            if "HTTP 404" not in str(exc) or self._same_endpoint(self._ocr_endpoint, fallback_endpoint):
+                raise
+            return self._post_json_to_endpoint(fallback_endpoint, payload)
+
+    def _post_json_to_endpoint(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
+        url = urljoin(f"{self._base_url}/", endpoint.lstrip("/"))
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if self._api_key:
             headers[self._api_key_header] = (
@@ -96,9 +108,12 @@ class PPOcrPageClient:
                 return json.loads(response.read().decode("utf-8", errors="replace"))
         except HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
-            raise PPOcrPageError(f"PPOCR /ocr HTTP {exc.code}: {body[:500]}") from exc
+            raise PPOcrPageError(f"PPOCR {endpoint} HTTP {exc.code}: {body[:500]}") from exc
         except URLError as exc:
-            raise PPOcrPageError(f"PPOCR /ocr request failed: {exc.reason}") from exc
+            raise PPOcrPageError(f"PPOCR {endpoint} request failed: {exc.reason}") from exc
+
+    def _same_endpoint(self, left: str, right: str) -> bool:
+        return left.strip("/").lower() == right.strip("/").lower()
 
 
 def normalize_ppocr_page_response(payload: dict[str, Any]) -> PPOcrPageOutput:

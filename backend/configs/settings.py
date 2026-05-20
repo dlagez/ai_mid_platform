@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     document_parser_provider: str = "ppocr"
 
     ppocr_base_url: str | None = None
-    ppocr_ocr_endpoint: str = "/ocr"
+    ppocr_ocr_endpoint: str = "/layout-parsing"
     ppocr_layout_parsing_endpoint: str = "/layout-parsing"
     ppocr_api_key: str | None = None
     ppocr_api_key_header: str = "Authorization"

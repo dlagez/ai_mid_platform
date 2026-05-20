@@ -65,7 +65,7 @@ def submit_parse_job_batches(job_id: int) -> None:
     default_retry_delay=5,
 )
 def parse_pdf_page(self, page_result_id: int) -> None:
-    """Render one PDF page, call PP-OCR /ocr, and persist page-level quality data."""
+    """Render one PDF page, call PP-OCR, and persist page-level quality data."""
 
     db = SessionLocal()
     page: ParsePageResult | None = None
