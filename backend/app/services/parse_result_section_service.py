@@ -7,13 +7,17 @@ from sqlalchemy.orm import Session
 
 from app.db.models import ParseResult, ParseResultSection
 from app.parsers.base import ParsedSection
-from app.parsers.markdown import parse_markdown_sections
+from app.parsers.section_strategy import parse_sections_with_strategy
 
 
 def rebuild_parse_result_sections(
     db: Session,
     parse_result: ParseResult,
     markdown: str,
+    *,
+    strategy: str = "decimal_number",
+    custom_patterns: dict[int, str] | None = None,
+    use_toc_outline: bool = True,
 ) -> list[ParseResultSection]:
     """Rebuild the persisted section tree for a parse_result.
 
@@ -27,7 +31,12 @@ def rebuild_parse_result_sections(
     )
     db.flush()
 
-    parsed_sections = parse_markdown_sections(markdown)
+    parsed_sections = parse_sections_with_strategy(
+        markdown,
+        strategy=strategy,
+        custom_patterns=custom_patterns,
+        use_toc_outline=use_toc_outline,
+    )
     sort_no = 1
     for section in parsed_sections:
         sort_no = _insert_section_tree(db, parse_result, None, section, sort_no)

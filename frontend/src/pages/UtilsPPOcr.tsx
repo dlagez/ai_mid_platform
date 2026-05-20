@@ -4,9 +4,12 @@ import {
   Card,
   Col,
   Empty,
+  Input,
   Progress,
   Row,
+  Select,
   Space,
+  Switch,
   Table,
   Tag,
   Tree,
@@ -39,7 +42,10 @@ import {
   type PPOcrPdfPage,
   type PPOcrPdfSectionsResult,
   type PPOcrResultSection,
+  type SectionRebuildStrategy,
 } from "../services/utilsService";
+
+const { TextArea } = Input;
 
 export const UtilsPPOcrPage = () => {
   const [jobs, setJobs] = useState<PPOcrPdfJob[]>([]);
@@ -47,6 +53,13 @@ export const UtilsPPOcrPage = () => {
   const [selectedDetail, setSelectedDetail] = useState<PPOcrPdfJobDetail | null>(null);
   const [sectionsResult, setSectionsResult] = useState<PPOcrPdfSectionsResult | null>(null);
   const [selectedSection, setSelectedSection] = useState<PPOcrResultSection | null>(null);
+  const [sectionStrategy, setSectionStrategy] = useState<SectionRebuildStrategy>("decimal_number");
+  const [useTocOutline, setUseTocOutline] = useState(true);
+  const [customPatterns, setCustomPatterns] = useState({
+    level1_pattern: "^(?P<section_no>[一二三四五六七八九十百千万零〇两]+)[、.．]\\s*(?P<title>.+)$",
+    level2_pattern: "^[（(](?P<section_no>[一二三四五六七八九十百千万零〇两]+)[）)]\\s*(?P<title>.+)$",
+    level3_pattern: "^(?P<section_no>\\d{1,2})(?:[.．、]|\\s+)\\s*(?P<title>.+)$",
+  });
   const [markdown, setMarkdown] = useState("");
   const [loading, setLoading] = useState({
     jobs: false,
@@ -164,7 +177,13 @@ export const UtilsPPOcrPage = () => {
     }
     setLoading((s) => ({ ...s, rebuildSections: true }));
     try {
-      const result = await rebuildPPOcrPdfSections(jobId);
+      const result = await rebuildPPOcrPdfSections(jobId, {
+        strategy: sectionStrategy,
+        use_toc_outline: useTocOutline,
+        level1_pattern: sectionStrategy === "custom" ? customPatterns.level1_pattern : null,
+        level2_pattern: sectionStrategy === "custom" ? customPatterns.level2_pattern : null,
+        level3_pattern: sectionStrategy === "custom" ? customPatterns.level3_pattern : null,
+      });
       setSectionsResult(result);
       setSelectedSection(findFirstSection(result.sections));
       message.success("Document sections rebuilt.");
@@ -414,49 +433,108 @@ export const UtilsPPOcrPage = () => {
             }
           >
             {selectedDetail ? (
-              sectionsResult?.sections.length ? (
-                <Row gutter={[16, 16]}>
-                  <Col xs={24} lg={10}>
-                    <div className="plan-section-tree">
-                      <Tree
-                        blockNode
-                        defaultExpandAll
-                        selectedKeys={selectedSection ? [String(selectedSection.id)] : []}
-                        treeData={toSectionTreeData(sectionsResult.sections)}
-                        onSelect={(keys) => {
-                          const key = keys[0];
-                          if (!key) {
-                            return;
-                          }
-                          setSelectedSection(findSection(sectionsResult.sections, Number(key)));
-                        }}
-                      />
-                    </div>
+              <Space direction="vertical" size={16} style={{ width: "100%" }}>
+                <Row gutter={[12, 12]} align="top">
+                  <Col xs={24} md={10}>
+                    <Select<SectionRebuildStrategy>
+                      value={sectionStrategy}
+                      style={{ width: "100%" }}
+                      options={[
+                        { value: "decimal_number", label: "1 / 1.2 / 1.2.3" },
+                        { value: "chinese_number", label: "一、/（一）/ 1." },
+                        { value: "markdown_heading", label: "# / ## / ###" },
+                        { value: "custom", label: "Custom regex" },
+                      ]}
+                      onChange={setSectionStrategy}
+                    />
                   </Col>
-                  <Col xs={24} lg={14}>
-                    <div className="plan-section-content">
-                      {selectedSection ? (
-                        <>
-                          <Space wrap>
-                            <Typography.Title level={4} style={{ margin: 0 }}>
-                              {selectedSection.title}
-                            </Typography.Title>
-                            <Tag>Level {selectedSection.title_level}</Tag>
-                            {selectedSection.section_no ? <Tag color="blue">{selectedSection.section_no}</Tag> : null}
-                          </Space>
-                          <Typography.Paragraph style={{ whiteSpace: "pre-wrap", marginTop: 12 }}>
-                            {selectedSection.content || "No content found for this section."}
-                          </Typography.Paragraph>
-                        </>
-                      ) : (
-                        <Empty description="Select a section" />
-                      )}
-                    </div>
+                  <Col xs={24} md={14}>
+                    <Space wrap>
+                      <Switch checked={useTocOutline} onChange={setUseTocOutline} />
+                      <Typography.Text type="secondary">Use TOC as outline</Typography.Text>
+                    </Space>
                   </Col>
                 </Row>
-              ) : (
-                <Empty description="No sections found. Rebuild after parsing if needed." />
-              )
+
+                {sectionStrategy === "custom" ? (
+                  <Row gutter={[12, 12]}>
+                    <Col xs={24} md={8}>
+                      <Typography.Text type="secondary">Level 1 regex</Typography.Text>
+                      <TextArea
+                        autoSize
+                        value={customPatterns.level1_pattern}
+                        onChange={(event) =>
+                          setCustomPatterns((current) => ({ ...current, level1_pattern: event.target.value }))
+                        }
+                      />
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Typography.Text type="secondary">Level 2 regex</Typography.Text>
+                      <TextArea
+                        autoSize
+                        value={customPatterns.level2_pattern}
+                        onChange={(event) =>
+                          setCustomPatterns((current) => ({ ...current, level2_pattern: event.target.value }))
+                        }
+                      />
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Typography.Text type="secondary">Level 3 regex</Typography.Text>
+                      <TextArea
+                        autoSize
+                        value={customPatterns.level3_pattern}
+                        onChange={(event) =>
+                          setCustomPatterns((current) => ({ ...current, level3_pattern: event.target.value }))
+                        }
+                      />
+                    </Col>
+                  </Row>
+                ) : null}
+
+                {sectionsResult?.sections.length ? (
+                  <Row gutter={[16, 16]}>
+                    <Col xs={24} lg={10}>
+                      <div className="plan-section-tree">
+                        <Tree
+                          blockNode
+                          defaultExpandAll
+                          selectedKeys={selectedSection ? [String(selectedSection.id)] : []}
+                          treeData={toSectionTreeData(sectionsResult.sections)}
+                          onSelect={(keys) => {
+                            const key = keys[0];
+                            if (!key) {
+                              return;
+                            }
+                            setSelectedSection(findSection(sectionsResult.sections, Number(key)));
+                          }}
+                        />
+                      </div>
+                    </Col>
+                    <Col xs={24} lg={14}>
+                      <div className="plan-section-content">
+                        {selectedSection ? (
+                          <>
+                            <Space wrap>
+                              <Typography.Title level={4} style={{ margin: 0 }}>
+                                {selectedSection.title}
+                              </Typography.Title>
+                              <Tag>Level {selectedSection.title_level}</Tag>
+                              {selectedSection.section_no ? <Tag color="blue">{selectedSection.section_no}</Tag> : null}
+                            </Space>
+                            <Typography.Paragraph style={{ whiteSpace: "pre-wrap", marginTop: 12 }}>
+                              {selectedSection.content || "No content found for this section."}
+                            </Typography.Paragraph>
+                          </>
+                        ) : (
+                          <Empty description="Select a section" />
+                        )}
+                      </div>
+                    </Col>
+                  </Row>
+                ) : (
+                  <Empty description="No sections found. Select a strategy and rebuild after parsing." />
+                )}
+              </Space>
             ) : (
               <Empty description="Select a parse job" />
             )}

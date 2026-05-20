@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Body, Depends, File, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -12,6 +12,7 @@ from app.db.models import UtilityParseRecord
 from app.db.session import get_db
 from app.parsers.factory import ParserConfigError, ParserUnsupportedFileError
 from app.parsers.ppocr import PPOcrParseError
+from app.parsers.section_strategy import SECTION_REBUILD_STRATEGIES, parse_custom_patterns
 from app.services.ppocr_pdf_service import (
     PPOcrPdfService,
     get_ppocr_pdf_service,
@@ -158,6 +159,14 @@ class ParseJobSectionsResponse(BaseModel):
 ParseResultSectionItem.model_rebuild()
 
 
+class SectionRebuildRequest(BaseModel):
+    strategy: str = "decimal_number"
+    use_toc_outline: bool = True
+    level1_pattern: str | None = None
+    level2_pattern: str | None = None
+    level3_pattern: str | None = None
+
+
 @router.post("/ppocr/parse", response_model=PPOcrParseResponse)
 async def parse_ppocr_file(
     current_user: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
@@ -300,11 +309,25 @@ async def rebuild_ppocr_pdf_sections(
     _: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
     service: Annotated[PPOcrPdfService, Depends(get_ppocr_pdf_service)],
     db: Annotated[Session, Depends(get_db)],
+    request: Annotated[SectionRebuildRequest, Body()] = SectionRebuildRequest(),
 ) -> ParseJobSectionsResponse:
     try:
-        flat_sections = service.rebuild_sections(db, job_id)
+        strategy = request.strategy.strip().lower()
+        if strategy not in SECTION_REBUILD_STRATEGIES:
+            supported = ", ".join(sorted(SECTION_REBUILD_STRATEGIES))
+            raise ValueError(f"Unsupported section rebuild strategy: {strategy}. Supported: {supported}.")
+        custom_patterns = parse_custom_patterns(request.model_dump()) if strategy == "custom" else None
+        flat_sections = service.rebuild_sections(
+            db,
+            job_id,
+            strategy=strategy,
+            custom_patterns=custom_patterns,
+            use_toc_outline=request.use_toc_outline,
+        )
     except FileNotFoundError as exc:
         raise PlatformError(str(exc), status_code=404) from exc
+    except ValueError as exc:
+        raise PlatformError(str(exc), status_code=400) from exc
     job = service.get_job(db, job_id)
     if not job:
         raise PlatformError(f"Parse job id={job_id} not found", status_code=404)

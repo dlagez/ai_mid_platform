@@ -125,6 +125,16 @@ export type PPOcrPdfSectionsResult = {
   flat_sections: PPOcrResultSectionFlat[];
 };
 
+export type SectionRebuildStrategy = "markdown_heading" | "decimal_number" | "chinese_number" | "custom";
+
+export type SectionRebuildRequest = {
+  strategy: SectionRebuildStrategy;
+  use_toc_outline: boolean;
+  level1_pattern?: string | null;
+  level2_pattern?: string | null;
+  level3_pattern?: string | null;
+};
+
 export const parsePPOcrFile = async (file: File) => {
   const form = new FormData();
   form.append("file", file);
@@ -169,8 +179,8 @@ export const getPPOcrPdfSections = async (id: number) => {
   return data;
 };
 
-export const rebuildPPOcrPdfSections = async (id: number) => {
-  const { data } = await apiClient.post<PPOcrPdfSectionsResult>(`/utils/ppocr/pdf/jobs/${id}/sections/rebuild`);
+export const rebuildPPOcrPdfSections = async (id: number, request: SectionRebuildRequest) => {
+  const { data } = await apiClient.post<PPOcrPdfSectionsResult>(`/utils/ppocr/pdf/jobs/${id}/sections/rebuild`, request);
   return data;
 };
 

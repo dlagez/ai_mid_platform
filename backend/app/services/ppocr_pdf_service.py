@@ -161,14 +161,29 @@ class PPOcrPdfService:
     def get_section_tree(self, db: Session, job_id: int) -> list[dict[str, Any]]:
         return parse_result_sections_to_tree(self.get_sections(db, job_id))
 
-    def rebuild_sections(self, db: Session, job_id: int) -> list[ParseResultSection]:
+    def rebuild_sections(
+        self,
+        db: Session,
+        job_id: int,
+        *,
+        strategy: str = "decimal_number",
+        custom_patterns: dict[int, str] | None = None,
+        use_toc_outline: bool = True,
+    ) -> list[ParseResultSection]:
         job = self.get_job(db, job_id)
         if not job:
             raise FileNotFoundError(f"Parse job not found: {job_id}")
         if not job.result:
             raise FileNotFoundError(f"Parse result not found for job: {job_id}")
         markdown = self.get_markdown(job)
-        sections = rebuild_parse_result_sections(db, job.result, markdown)
+        sections = rebuild_parse_result_sections(
+            db,
+            job.result,
+            markdown,
+            strategy=strategy,
+            custom_patterns=custom_patterns,
+            use_toc_outline=use_toc_outline,
+        )
         db.commit()
         return sections
 
