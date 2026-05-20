@@ -12,6 +12,7 @@ from minio import Minio
 from app.db.models import DocumentMarkdownMap, ParseJob, ParsePageResult, ParseResult
 from app.db.session import SessionLocal
 from app.parsers.ppocr_page import PPOcrPageClient
+from app.services.parse_result_section_service import rebuild_parse_result_sections
 from app.workers.celery_worker import celery_app
 from configs.settings import settings
 
@@ -214,24 +215,25 @@ def finalize_parse_job(job_id: int) -> None:
         job.raw_result_path = f"{settings.minio_bucket_documents}/{raw_result_object_name}"
         job.completed_at = datetime.utcnow()
         job.error_message = _final_error_message(failed)
-        db.add(
-            ParseResult(
-                job_id=job.id,
-                status=final_status,
-                markdown_file_path=job.result_markdown_path,
-                json_file_path=job.result_json_path,
-                raw_result_file_path=job.raw_result_path,
-                markdown_file_size=len(markdown_bytes),
-                json_file_size=len(document_json_bytes),
-                page_count=job.page_count,
-                succeeded_pages=job.succeeded_pages,
-                failed_pages=job.failed_pages,
-                low_confidence_pages=job.low_confidence_pages,
-                avg_confidence=job.avg_confidence,
-                block_count=job.block_count,
-                parse_metadata=job.parse_metadata,
-            )
+        parse_result = ParseResult(
+            job_id=job.id,
+            status=final_status,
+            markdown_file_path=job.result_markdown_path,
+            json_file_path=job.result_json_path,
+            raw_result_file_path=job.raw_result_path,
+            markdown_file_size=len(markdown_bytes),
+            json_file_size=len(document_json_bytes),
+            page_count=job.page_count,
+            succeeded_pages=job.succeeded_pages,
+            failed_pages=job.failed_pages,
+            low_confidence_pages=job.low_confidence_pages,
+            avg_confidence=job.avg_confidence,
+            block_count=job.block_count,
+            parse_metadata=job.parse_metadata,
         )
+        db.add(parse_result)
+        db.flush()
+        rebuild_parse_result_sections(db, parse_result, document_markdown)
         db.commit()
     finally:
         db.close()

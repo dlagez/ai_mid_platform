@@ -9,12 +9,15 @@ import {
   Space,
   Table,
   Tag,
+  Tree,
   Typography,
   Upload,
   message,
 } from "antd";
 import type { UploadFile } from "antd";
+import type { DataNode } from "antd/es/tree";
 import {
+  ApartmentOutlined,
   CloudUploadOutlined,
   EyeOutlined,
   FileMarkdownOutlined,
@@ -27,19 +30,33 @@ import {
   createPPOcrPdfJob,
   getPPOcrPdfJob,
   getPPOcrPdfMarkdown,
+  getPPOcrPdfSections,
   listPPOcrPdfJobs,
+  rebuildPPOcrPdfSections,
   retryPPOcrPdfPage,
   type PPOcrPdfJob,
   type PPOcrPdfJobDetail,
   type PPOcrPdfPage,
+  type PPOcrPdfSectionsResult,
+  type PPOcrResultSection,
 } from "../services/utilsService";
 
 export const UtilsPPOcrPage = () => {
   const [jobs, setJobs] = useState<PPOcrPdfJob[]>([]);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [selectedDetail, setSelectedDetail] = useState<PPOcrPdfJobDetail | null>(null);
+  const [sectionsResult, setSectionsResult] = useState<PPOcrPdfSectionsResult | null>(null);
+  const [selectedSection, setSelectedSection] = useState<PPOcrResultSection | null>(null);
   const [markdown, setMarkdown] = useState("");
-  const [loading, setLoading] = useState({ jobs: false, upload: false, detail: false, markdown: false, retry: false });
+  const [loading, setLoading] = useState({
+    jobs: false,
+    upload: false,
+    detail: false,
+    markdown: false,
+    retry: false,
+    sections: false,
+    rebuildSections: false,
+  });
   const [pdfPreview, setPdfPreview] = useState({ open: false, title: "", url: "" });
 
   const refreshJobs = async () => {
@@ -55,6 +72,7 @@ export const UtilsPPOcrPage = () => {
           if (["success", "partial_success", "failed"].includes(detail.job.status)) {
             const result = await getPPOcrPdfMarkdown(detail.job.id);
             setMarkdown(result.markdown);
+            await loadSections(detail.job.id, false);
           }
         }
       }
@@ -105,15 +123,55 @@ export const UtilsPPOcrPage = () => {
       const detail = await getPPOcrPdfJob(jobId);
       setSelectedDetail(detail);
       if (["success", "partial_success", "failed"].includes(detail.job.status)) {
+        setLoading((s) => ({ ...s, markdown: true }));
         const result = await getPPOcrPdfMarkdown(jobId);
         setMarkdown(result.markdown);
+        setLoading((s) => ({ ...s, markdown: false }));
+        await loadSections(jobId);
       } else {
         setMarkdown("");
+        setSectionsResult(null);
+        setSelectedSection(null);
       }
     } catch {
       message.error("Failed to load job detail.");
     } finally {
-      setLoading((s) => ({ ...s, detail: false }));
+      setLoading((s) => ({ ...s, detail: false, markdown: false }));
+    }
+  };
+
+  const loadSections = async (jobId: number, showError = true) => {
+    setLoading((s) => ({ ...s, sections: true }));
+    try {
+      const result = await getPPOcrPdfSections(jobId);
+      setSectionsResult(result);
+      setSelectedSection(findFirstSection(result.sections));
+    } catch {
+      if (showError) {
+        message.error("Failed to load document sections.");
+      }
+      setSectionsResult(null);
+      setSelectedSection(null);
+    } finally {
+      setLoading((s) => ({ ...s, sections: false }));
+    }
+  };
+
+  const handleRebuildSections = async () => {
+    const jobId = selectedDetail?.job.id;
+    if (!jobId) {
+      return;
+    }
+    setLoading((s) => ({ ...s, rebuildSections: true }));
+    try {
+      const result = await rebuildPPOcrPdfSections(jobId);
+      setSectionsResult(result);
+      setSelectedSection(findFirstSection(result.sections));
+      message.success("Document sections rebuilt.");
+    } catch {
+      message.error("Failed to rebuild document sections.");
+    } finally {
+      setLoading((s) => ({ ...s, rebuildSections: false }));
     }
   };
 
@@ -332,6 +390,82 @@ export const UtilsPPOcrPage = () => {
             style={{ marginTop: 16 }}
             title={
               <Space>
+                <ApartmentOutlined />
+                <span>Document Sections</span>
+              </Space>
+            }
+            loading={loading.sections}
+            extra={
+              selectedDetail && ["success", "partial_success", "failed"].includes(selectedDetail.job.status) ? (
+                <Space>
+                  <Button size="small" onClick={() => void loadSections(selectedDetail.job.id)}>
+                    Reload
+                  </Button>
+                  <Button
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    loading={loading.rebuildSections}
+                    onClick={() => void handleRebuildSections()}
+                  >
+                    Rebuild
+                  </Button>
+                </Space>
+              ) : null
+            }
+          >
+            {selectedDetail ? (
+              sectionsResult?.sections.length ? (
+                <Row gutter={[16, 16]}>
+                  <Col xs={24} lg={10}>
+                    <div className="plan-section-tree">
+                      <Tree
+                        blockNode
+                        defaultExpandAll
+                        selectedKeys={selectedSection ? [String(selectedSection.id)] : []}
+                        treeData={toSectionTreeData(sectionsResult.sections)}
+                        onSelect={(keys) => {
+                          const key = keys[0];
+                          if (!key) {
+                            return;
+                          }
+                          setSelectedSection(findSection(sectionsResult.sections, Number(key)));
+                        }}
+                      />
+                    </div>
+                  </Col>
+                  <Col xs={24} lg={14}>
+                    <div className="plan-section-content">
+                      {selectedSection ? (
+                        <>
+                          <Space wrap>
+                            <Typography.Title level={4} style={{ margin: 0 }}>
+                              {selectedSection.title}
+                            </Typography.Title>
+                            <Tag>Level {selectedSection.title_level}</Tag>
+                            {selectedSection.section_no ? <Tag color="blue">{selectedSection.section_no}</Tag> : null}
+                          </Space>
+                          <Typography.Paragraph style={{ whiteSpace: "pre-wrap", marginTop: 12 }}>
+                            {selectedSection.content || "No content found for this section."}
+                          </Typography.Paragraph>
+                        </>
+                      ) : (
+                        <Empty description="Select a section" />
+                      )}
+                    </div>
+                  </Col>
+                </Row>
+              ) : (
+                <Empty description="No sections found. Rebuild after parsing if needed." />
+              )
+            ) : (
+              <Empty description="Select a parse job" />
+            )}
+          </Card>
+
+          <Card
+            style={{ marginTop: 16 }}
+            title={
+              <Space>
                 <FileMarkdownOutlined />
                 <span>Document Markdown</span>
               </Space>
@@ -379,4 +513,29 @@ const formatConfidence = (value: number | null) => {
     return "-";
   }
   return value.toFixed(3);
+};
+
+const toSectionTreeData = (sections: PPOcrResultSection[]): DataNode[] =>
+  sections.map((section) => ({
+    key: String(section.id),
+    title: section.title,
+    children: toSectionTreeData(section.children),
+  }));
+
+const findSection = (sections: PPOcrResultSection[], id: number): PPOcrResultSection | null => {
+  for (const section of sections) {
+    if (section.id === id) {
+      return section;
+    }
+    const child = findSection(section.children, id);
+    if (child) {
+      return child;
+    }
+  }
+  return null;
+};
+
+const findFirstSection = (sections: PPOcrResultSection[]): PPOcrResultSection | null => {
+  const [first] = sections;
+  return first ?? null;
 };

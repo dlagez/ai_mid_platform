@@ -13,7 +13,13 @@ from fastapi import UploadFile
 from minio import Minio
 from sqlalchemy.orm import Session, selectinload
 
-from app.db.models import DocumentMarkdownMap, ParseJob, ParsePageResult, ParseResult
+from app.db.models import DocumentMarkdownMap, ParseJob, ParsePageResult, ParseResult, ParseResultSection
+from app.services.parse_result_section_service import (
+    get_parse_result_sections,
+    parse_result_section_to_dict,
+    parse_result_sections_to_tree,
+    rebuild_parse_result_sections,
+)
 from configs.settings import settings
 
 
@@ -146,6 +152,26 @@ class PPOcrPdfService:
             .all()
         )
 
+    def get_sections(self, db: Session, job_id: int) -> list[ParseResultSection]:
+        result = db.query(ParseResult).filter(ParseResult.job_id == job_id).first()
+        if not result:
+            return []
+        return get_parse_result_sections(db, result.id)
+
+    def get_section_tree(self, db: Session, job_id: int) -> list[dict[str, Any]]:
+        return parse_result_sections_to_tree(self.get_sections(db, job_id))
+
+    def rebuild_sections(self, db: Session, job_id: int) -> list[ParseResultSection]:
+        job = self.get_job(db, job_id)
+        if not job:
+            raise FileNotFoundError(f"Parse job not found: {job_id}")
+        if not job.result:
+            raise FileNotFoundError(f"Parse result not found for job: {job_id}")
+        markdown = self.get_markdown(job)
+        sections = rebuild_parse_result_sections(db, job.result, markdown)
+        db.commit()
+        return sections
+
     def retry_page(self, db: Session, job_id: int, page_no: int) -> ParsePageResult:
         page = (
             db.query(ParsePageResult)
@@ -256,6 +282,10 @@ def markdown_map_to_dict(item: DocumentMarkdownMap) -> dict[str, Any]:
         "block_count": item.block_count,
         "created_at": _dt(item.created_at),
     }
+
+
+def parse_section_to_dict(section: ParseResultSection) -> dict[str, Any]:
+    return parse_result_section_to_dict(section)
 
 
 def _dt(value: datetime | None) -> str | None:

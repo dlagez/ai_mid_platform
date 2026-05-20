@@ -103,6 +103,28 @@ export type PPOcrPdfMarkdownResult = {
   markdown_maps: PPOcrMarkdownMap[];
 };
 
+export type PPOcrResultSection = {
+  id: number;
+  document_id: number;
+  job_id: number;
+  parent_id: number | null;
+  title_level: number;
+  title: string;
+  section_no: string | null;
+  content: string;
+  sort_no: number;
+  created_at: string | null;
+  children: PPOcrResultSection[];
+};
+
+export type PPOcrResultSectionFlat = Omit<PPOcrResultSection, "children">;
+
+export type PPOcrPdfSectionsResult = {
+  job: PPOcrPdfJob;
+  sections: PPOcrResultSection[];
+  flat_sections: PPOcrResultSectionFlat[];
+};
+
 export const parsePPOcrFile = async (file: File) => {
   const form = new FormData();
   form.append("file", file);
@@ -139,6 +161,16 @@ export const getPPOcrPdfJob = async (id: number) => {
 
 export const getPPOcrPdfMarkdown = async (id: number) => {
   const { data } = await apiClient.get<PPOcrPdfMarkdownResult>(`/utils/ppocr/pdf/jobs/${id}/markdown`);
+  return data;
+};
+
+export const getPPOcrPdfSections = async (id: number) => {
+  const { data } = await apiClient.get<PPOcrPdfSectionsResult>(`/utils/ppocr/pdf/jobs/${id}/sections`);
+  return data;
+};
+
+export const rebuildPPOcrPdfSections = async (id: number) => {
+  const { data } = await apiClient.post<PPOcrPdfSectionsResult>(`/utils/ppocr/pdf/jobs/${id}/sections/rebuild`);
   return data;
 };
 

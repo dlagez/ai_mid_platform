@@ -5,7 +5,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, UploadFile
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.models import UtilityParseRecord
@@ -18,6 +18,7 @@ from app.services.ppocr_pdf_service import (
     markdown_map_to_dict,
     parse_job_to_dict,
     parse_page_to_dict,
+    parse_section_to_dict,
 )
 from app.services.utility_parse_service import UtilityParseService, get_utility_parse_service
 from app.utils.exceptions import PlatformError
@@ -129,6 +130,32 @@ class ParseJobMarkdownResponse(BaseModel):
     job: ParseJobItem
     markdown: str
     markdown_maps: list[MarkdownMapItem]
+
+
+class ParseResultSectionFlatItem(BaseModel):
+    id: int
+    document_id: int
+    job_id: int
+    parent_id: int | None
+    title_level: int
+    title: str
+    section_no: str | None
+    content: str
+    sort_no: int
+    created_at: str | None
+
+
+class ParseResultSectionItem(ParseResultSectionFlatItem):
+    children: list["ParseResultSectionItem"] = Field(default_factory=list)
+
+
+class ParseJobSectionsResponse(BaseModel):
+    job: ParseJobItem
+    sections: list[ParseResultSectionItem]
+    flat_sections: list[ParseResultSectionFlatItem]
+
+
+ParseResultSectionItem.model_rebuild()
 
 
 @router.post("/ppocr/parse", response_model=PPOcrParseResponse)
@@ -246,6 +273,45 @@ async def get_ppocr_pdf_markdown(
         job=ParseJobItem(**parse_job_to_dict(job)),
         markdown=service.get_markdown(job),
         markdown_maps=[MarkdownMapItem(**markdown_map_to_dict(item)) for item in maps],
+    )
+
+
+@router.get("/ppocr/pdf/jobs/{job_id}/sections", response_model=ParseJobSectionsResponse)
+async def get_ppocr_pdf_sections(
+    job_id: int,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    service: Annotated[PPOcrPdfService, Depends(get_ppocr_pdf_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ParseJobSectionsResponse:
+    job = service.get_job(db, job_id)
+    if not job:
+        raise PlatformError(f"Parse job id={job_id} not found", status_code=404)
+    flat_sections = service.get_sections(db, job_id)
+    return ParseJobSectionsResponse(
+        job=ParseJobItem(**parse_job_to_dict(job)),
+        sections=[ParseResultSectionItem(**item) for item in service.get_section_tree(db, job_id)],
+        flat_sections=[ParseResultSectionFlatItem(**parse_section_to_dict(item)) for item in flat_sections],
+    )
+
+
+@router.post("/ppocr/pdf/jobs/{job_id}/sections/rebuild", response_model=ParseJobSectionsResponse)
+async def rebuild_ppocr_pdf_sections(
+    job_id: int,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
+    service: Annotated[PPOcrPdfService, Depends(get_ppocr_pdf_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ParseJobSectionsResponse:
+    try:
+        flat_sections = service.rebuild_sections(db, job_id)
+    except FileNotFoundError as exc:
+        raise PlatformError(str(exc), status_code=404) from exc
+    job = service.get_job(db, job_id)
+    if not job:
+        raise PlatformError(f"Parse job id={job_id} not found", status_code=404)
+    return ParseJobSectionsResponse(
+        job=ParseJobItem(**parse_job_to_dict(job)),
+        sections=[ParseResultSectionItem(**item) for item in service.get_section_tree(db, job_id)],
+        flat_sections=[ParseResultSectionFlatItem(**parse_section_to_dict(item)) for item in flat_sections],
     )
 
 

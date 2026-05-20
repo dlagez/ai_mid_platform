@@ -208,6 +208,59 @@ class ParseResult(Base):
         back_populates="result",
         foreign_keys=[job_id],
     )
+    sections: Mapped[list["ParseResultSection"]] = relationship(
+        "ParseResultSection",
+        back_populates="document",
+        cascade="all, delete-orphan",
+        foreign_keys="ParseResultSection.document_id",
+    )
+
+
+class ParseResultSection(Base):
+    __tablename__ = "parse_result_section"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    # document_id intentionally points to parse_result.id so the section tree is
+    # tied to one concrete parsed document artifact, not only the source job.
+    document_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("parse_result.id", ondelete="CASCADE"),
+        index=True,
+    )
+    job_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("parse_job.id", ondelete="CASCADE"),
+        index=True,
+    )
+    parent_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("parse_result_section.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    title_level: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(String(512))
+    section_no: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    content: Mapped[str] = mapped_column(Text, default="")
+    sort_no: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    document: Mapped[ParseResult] = relationship(
+        "ParseResult",
+        back_populates="sections",
+        foreign_keys=[document_id],
+    )
+    job: Mapped[ParseJob] = relationship("ParseJob", foreign_keys=[job_id])
+    parent: Mapped["ParseResultSection | None"] = relationship(
+        "ParseResultSection",
+        remote_side=[id],
+        back_populates="children",
+    )
+    children: Mapped[list["ParseResultSection"]] = relationship(
+        "ParseResultSection",
+        back_populates="parent",
+        cascade="all, delete-orphan",
+    )
 
 
 class DocumentMarkdownMap(Base):

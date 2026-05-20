@@ -40,6 +40,7 @@ def parse_markdown_sections(markdown: str) -> list[ParsedSection]:
 
 def _clean_markdown_line(line: str) -> str:
     line = line.strip()
+    line = re.sub(r"<a\s+id=[\"'][^\"']+[\"']\s*></a>", "", line, flags=re.IGNORECASE)
     line = re.sub(r"<!--.*?-->", "", line)
     return line.strip()
 
@@ -55,8 +56,18 @@ def _detect_heading(line: str) -> tuple[int, str, str | None] | None:
     if chapter_match:
         return 1, line.strip(), chapter_match.group(1)
 
-    number_match = re.match(r"^\s*(\d{1,2}(?:\.\d{1,2}){0,2})\.?[、\s]+(.+)$", line)
+    section_match = re.match(r"^\s*(第[一二三四五六七八九十百千万零〇两\d]+节)\s*(.*)$", line)
+    if section_match and _looks_like_title(line):
+        return 2, line.strip(), section_match.group(1)
+
+    chinese_number_match = re.match(r"^\s*([一二三四五六七八九十]+)[、.．]\s*(.+)$", line)
+    if chinese_number_match and _looks_like_title(line):
+        return 2, line.strip(), chinese_number_match.group(1)
+
+    number_match = re.match(r"^\s*((?:\d{1,2}\.){1,2}\d{1,2})([\u4e00-\u9fff].*)$", line)
     if not number_match:
+        number_match = re.match(r"^\s*((?:\d{1,2}\.){1,2}\d{1,2}|\d{1,2})(?:[.．、]|\s+)\s*(.+)$", line)
+    if not number_match or not _looks_like_title(line):
         return None
 
     section_no = number_match.group(1)
@@ -77,3 +88,10 @@ def _extract_section_no(text: str) -> str | None:
         return number_match.group(1)
 
     return None
+
+
+def _looks_like_title(line: str) -> bool:
+    text = line.strip()
+    if not text or len(text) > 120:
+        return False
+    return not re.search(r"[。！？；;]$", text)
