@@ -30,6 +30,7 @@ SUPPORTED_PLAN_FILE_EXTENSIONS = (
     ".tiff",
     ".webp",
 )
+DOCUMENT_TYPES = {"template", "construction_plan"}
 
 
 class DocumentItem(BaseModel):
@@ -37,6 +38,7 @@ class DocumentItem(BaseModel):
     file_name: str
     file_path: str
     file_size: int
+    document_type: str
     parse_status: str
     created_at: str
 
@@ -46,6 +48,7 @@ class DocumentItem(BaseModel):
 class DocumentUploadResponse(BaseModel):
     id: int
     file_name: str
+    document_type: str
     status: str
 
 
@@ -78,13 +81,21 @@ async def upload_document(
     background_tasks: BackgroundTasks,
     file: Annotated[UploadFile, File()],
     parser: Annotated[str | None, Form()] = None,
+    document_type: Annotated[str, Form()] = "template",
 ) -> DocumentUploadResponse:
     if not (file.filename or "").lower().endswith(SUPPORTED_PLAN_FILE_EXTENSIONS):
         raise PlatformError("Only .docx, .xlsx, .csv, .pdf, and image files are supported.", status_code=400)
+    if document_type not in DOCUMENT_TYPES:
+        raise PlatformError(f"Invalid document_type: {document_type}", status_code=400)
     _validate_parser(parser, file.filename or "")
-    record = await service.upload(db, file, current_user.username)
+    record = await service.upload(db, file, current_user.username, document_type=document_type)
     background_tasks.add_task(service.parse_in_background, record.id, parser)
-    return DocumentUploadResponse(id=record.id, file_name=record.file_name, status=record.parse_status)
+    return DocumentUploadResponse(
+        id=record.id,
+        file_name=record.file_name,
+        document_type=record.document_type,
+        status=record.parse_status,
+    )
 
 
 @router.get("", response_model=list[DocumentItem])
@@ -92,14 +103,18 @@ async def list_documents(
     _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
     service: Annotated[DocumentService, Depends(get_document_service)],
     db: Annotated[Session, Depends(get_db)],
+    document_type: Annotated[str | None, Query()] = None,
 ) -> list[DocumentItem]:
-    records = service.list_files(db)
+    if document_type and document_type not in DOCUMENT_TYPES:
+        raise PlatformError(f"Invalid document_type: {document_type}", status_code=400)
+    records = service.list_files(db, document_type=document_type)
     return [
         DocumentItem(
             id=r.id,
             file_name=r.file_name,
             file_path=r.file_path,
             file_size=r.file_size,
+            document_type=r.document_type,
             parse_status=r.parse_status,
             created_at=r.created_at.isoformat() if r.created_at else "",
         )

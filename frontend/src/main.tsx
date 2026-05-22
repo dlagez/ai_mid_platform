@@ -40,7 +40,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { ModelCallPage } from "./pages/ModelCall";
 import { OpenKBPage } from "./pages/OpenKB";
 import { TaskListPage } from "./pages/TaskList";
-import { ConstructionPlanReviewPage } from "./pages/ConstructionPlanReview";
+import { ConstructionPlanReviewPage, TemplateUploadPage } from "./pages/ConstructionPlanReview";
 import { UtilsPPOcrPage } from "./pages/UtilsPPOcr";
 import { ReviewTemplateListPage } from "./pages/ReviewTemplateList";
 import { ReviewTemplateEditPage } from "./pages/ReviewTemplateEdit";
@@ -75,6 +75,11 @@ const resources = [
   {
     name: "construction-review",
     meta: { label: "Review of Construction Plan", icon: <FileTextOutlined /> },
+  },
+  {
+    name: "upload-templates",
+    list: "/upload-templates",
+    meta: { label: "Upload Templates", icon: <SnippetsOutlined />, parent: "construction-review" },
   },
   {
     name: "construction-plan",
@@ -159,6 +164,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                 <Route path="/tasks" element={<TaskListPage />} />
                 <Route path="/models" element={<ModelCallPage />} />
                 <Route path="/openkb" element={<OpenKBPage />} />
+                <Route path="/upload-templates" element={<TemplateUploadPage />} />
                 <Route path="/construction-plan" element={<ConstructionPlanReviewPage />} />
                 <Route path="/review-templates" element={<ReviewTemplateListPage />} />
                 <Route path="/review-templates/:id" element={<ReviewTemplateEditPage />} />

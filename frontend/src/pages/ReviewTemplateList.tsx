@@ -39,7 +39,7 @@ export const ReviewTemplateListPage = () => {
   const loadDocuments = async () => {
     setLoading((current) => ({ ...current, documents: true }));
     try {
-      setDocuments(await listDocuments());
+      setDocuments(await listDocuments({ document_type: "template" }));
     } catch {
       message.error("Failed to load parsed documents.");
     } finally {
@@ -191,7 +191,7 @@ export const ReviewTemplateListPage = () => {
         onCancel={() => setImportOpen(false)}
       >
         <Form form={form} layout="vertical" requiredMark={false}>
-          <Form.Item name="document_id" label="Parsed Construction Plan Document" rules={[{ required: true }]}>
+          <Form.Item name="document_id" label="Parsed Template Document" rules={[{ required: true }]}>
             <Select
               showSearch
               loading={loading.documents}

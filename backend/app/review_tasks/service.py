@@ -124,6 +124,8 @@ class ReviewTaskService:
         document = db.query(PlanDocument).filter(PlanDocument.id == document_id).first()
         if not document:
             raise PlatformError(f"Plan document id={document_id} not found", status_code=404)
+        if document.document_type != "construction_plan":
+            raise PlatformError("Review tasks can only use uploaded construction plan documents.", status_code=400)
         return document
 
     def _ensure_template(self, db: Session, template_id: int) -> ReviewTemplate:

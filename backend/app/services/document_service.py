@@ -30,7 +30,7 @@ class DocumentService:
             self._minio.make_bucket(self._bucket)
 
     async def upload(
-        self, db: Session, file: UploadFile, uploaded_by: str
+        self, db: Session, file: UploadFile, uploaded_by: str, document_type: str = "template"
     ) -> PlanDocument:
         del uploaded_by
         self._ensure_bucket()
@@ -50,6 +50,7 @@ class DocumentService:
             file_name=file_name,
             file_path=f"{self._bucket}/{object_name}",
             file_size=len(content),
+            document_type=document_type,
             parse_status="uploaded",
         )
         db.add(record)
@@ -57,8 +58,11 @@ class DocumentService:
         db.refresh(record)
         return record
 
-    def list_files(self, db: Session) -> list[PlanDocument]:
-        return db.query(PlanDocument).order_by(PlanDocument.created_at.desc()).all()
+    def list_files(self, db: Session, document_type: str | None = None) -> list[PlanDocument]:
+        query = db.query(PlanDocument)
+        if document_type:
+            query = query.filter(PlanDocument.document_type == document_type)
+        return query.order_by(PlanDocument.created_at.desc()).all()
 
     def parse(self, db: Session, record_id: int, parser_provider: str | None = None) -> PlanDocument:
         record = db.query(PlanDocument).filter(PlanDocument.id == record_id).first()

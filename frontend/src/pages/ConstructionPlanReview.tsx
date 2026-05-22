@@ -23,6 +23,7 @@ import {
 } from "@ant-design/icons";
 import { PdfPreviewModal } from "../components/PdfPreviewModal";
 import {
+  type DocumentType,
   getDocumentSections,
   listDocuments,
   parseDocument,
@@ -33,7 +34,19 @@ import {
 } from "../services/documentService";
 import { fetchPdfPreviewUrl } from "../services/filePreviewService";
 
-export const ConstructionPlanReviewPage = () => {
+type DocumentUploadReviewProps = {
+  documentType: DocumentType;
+  title: string;
+  uploadCardTitle: string;
+  emptyDescription: string;
+};
+
+const DocumentUploadReviewPage = ({
+  documentType,
+  title,
+  uploadCardTitle,
+  emptyDescription,
+}: DocumentUploadReviewProps) => {
   const [files, setFiles] = useState<DocumentRecord[]>([]);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [parsed, setParsed] = useState<DocumentParseResult | null>(null);
@@ -44,7 +57,7 @@ export const ConstructionPlanReviewPage = () => {
   const refreshFiles = async () => {
     setLoading((s) => ({ ...s, files: true }));
     try {
-      setFiles(await listDocuments());
+      setFiles(await listDocuments({ document_type: documentType }));
     } catch {
       message.error("Failed to load file list.");
     } finally {
@@ -75,7 +88,7 @@ export const ConstructionPlanReviewPage = () => {
     }
     setLoading((s) => ({ ...s, upload: true }));
     try {
-      const result = await uploadDocument(originFile);
+      const result = await uploadDocument(originFile, documentType);
       message.success(`Uploaded: ${result.file_name}. Parsing started.`);
       setFileList([]);
       await refreshFiles();
@@ -130,7 +143,7 @@ export const ConstructionPlanReviewPage = () => {
   return (
     <div className="page">
       <div className="page-heading">
-        <h1>Upload Construction Plan</h1>
+        <h1>{title}</h1>
         <Button icon={<ReloadOutlined />} loading={loading.files} onClick={() => void refreshFiles()}>
           Refresh
         </Button>
@@ -138,7 +151,7 @@ export const ConstructionPlanReviewPage = () => {
 
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={10}>
-          <Card title="Upload Document">
+          <Card title={uploadCardTitle}>
             <Space direction="vertical" size={12} style={{ width: "100%" }}>
               <Upload
                 beforeUpload={() => false}
@@ -276,9 +289,7 @@ export const ConstructionPlanReviewPage = () => {
                 )}
               </Space>
             ) : (
-              <Typography.Text type="secondary">
-                Upload a .docx file, then view the parsed section tree and content.
-              </Typography.Text>
+              <Typography.Text type="secondary">{emptyDescription}</Typography.Text>
             )}
           </Card>
         </Col>
@@ -292,6 +303,24 @@ export const ConstructionPlanReviewPage = () => {
     </div>
   );
 };
+
+export const TemplateUploadPage = () => (
+  <DocumentUploadReviewPage
+    documentType="template"
+    title="Upload Templates"
+    uploadCardTitle="Upload Template Document"
+    emptyDescription="Upload a template document, then view the parsed section tree and content."
+  />
+);
+
+export const ConstructionPlanReviewPage = () => (
+  <DocumentUploadReviewPage
+    documentType="construction_plan"
+    title="Upload Construction Plan"
+    uploadCardTitle="Upload Construction Plan Document"
+    emptyDescription="Upload a construction plan document, then view the parsed section tree and content."
+  />
+);
 
 const toTreeData = (sections: PlanSection[]): DataNode[] =>
   sections.map((section) => ({

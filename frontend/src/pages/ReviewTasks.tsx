@@ -48,7 +48,10 @@ export const ReviewTasksPage = () => {
   const loadOptions = async () => {
     setLoading((current) => ({ ...current, options: true }));
     try {
-      const [documentItems, templateResult] = await Promise.all([listDocuments(), listReviewTemplates()]);
+      const [documentItems, templateResult] = await Promise.all([
+        listDocuments({ document_type: "construction_plan" }),
+        listReviewTemplates(),
+      ]);
       setDocuments(documentItems);
       setTemplates(templateResult.items.filter((template) => template.status === "active"));
     } catch {

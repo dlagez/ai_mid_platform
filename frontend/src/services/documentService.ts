@@ -5,13 +5,17 @@ export type DocumentRecord = {
   file_name: string;
   file_path: string;
   file_size: number;
+  document_type: DocumentType;
   parse_status: string;
   created_at: string;
 };
 
+export type DocumentType = "template" | "construction_plan";
+
 export type DocumentUploadResult = {
   id: number;
   file_name: string;
+  document_type: DocumentType;
   status: string;
 };
 
@@ -36,15 +40,16 @@ export type PlanSection = {
   children: PlanSection[];
 };
 
-export const uploadDocument = async (file: File) => {
+export const uploadDocument = async (file: File, documentType: DocumentType = "template") => {
   const form = new FormData();
   form.append("file", file);
+  form.append("document_type", documentType);
   const { data } = await apiClient.post<DocumentUploadResult>("/documents/upload", form);
   return data;
 };
 
-export const listDocuments = async () => {
-  const { data } = await apiClient.get<DocumentRecord[]>("/documents");
+export const listDocuments = async (query?: { document_type?: DocumentType }) => {
+  const { data } = await apiClient.get<DocumentRecord[]>("/documents", { params: query });
   return data;
 };
 
