@@ -1,12 +1,20 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useGetIdentity } from "@refinedev/core";
-import { Button, Card, Form, Input, Modal, Select, Space, Table, Tag, message } from "antd";
-import { CheckCircleOutlined, EditOutlined, ImportOutlined, ReloadOutlined, StopOutlined } from "@ant-design/icons";
+import { Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, message } from "antd";
+import {
+  CheckCircleOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  ImportOutlined,
+  ReloadOutlined,
+  StopOutlined,
+} from "@ant-design/icons";
 import type { CurrentUser } from "../types/platform";
 import { listDocuments, type DocumentRecord } from "../services/documentService";
 import {
   activateReviewTemplate,
+  archiveReviewTemplate,
   disableReviewTemplate,
   importReviewTemplateFromDocument,
   listReviewTemplates,
@@ -21,7 +29,7 @@ export const ReviewTemplateListPage = () => {
   const [templates, setTemplates] = useState<ReviewTemplate[]>([]);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [importOpen, setImportOpen] = useState(false);
-  const [loading, setLoading] = useState({ list: false, import: false, status: false, documents: false });
+  const [loading, setLoading] = useState({ list: false, import: false, status: false, delete: false, documents: false });
   const [form] = Form.useForm<ImportTemplateRequest>();
 
   const refresh = async () => {
@@ -102,6 +110,19 @@ export const ReviewTemplateListPage = () => {
     }
   };
 
+  const deleteTemplate = async (record: ReviewTemplate) => {
+    setLoading((current) => ({ ...current, delete: true }));
+    try {
+      await archiveReviewTemplate(record.id);
+      message.success("Template deleted.");
+      await refresh();
+    } catch {
+      message.error("Failed to delete template.");
+    } finally {
+      setLoading((current) => ({ ...current, delete: false }));
+    }
+  };
+
   return (
     <div className="page">
       <div className="page-heading">
@@ -156,25 +177,38 @@ export const ReviewTemplateListPage = () => {
                     Section Rules
                   </Button>
                   {isAdmin ? (
-                    record.status === "active" ? (
-                      <Button
-                        size="small"
-                        icon={<StopOutlined />}
-                        loading={loading.status}
-                        onClick={() => void changeStatus(record, "disabled")}
+                    <>
+                      {record.status === "active" ? (
+                        <Button
+                          size="small"
+                          icon={<StopOutlined />}
+                          loading={loading.status}
+                          onClick={() => void changeStatus(record, "disabled")}
+                        >
+                          Disable
+                        </Button>
+                      ) : (
+                        <Button
+                          size="small"
+                          icon={<CheckCircleOutlined />}
+                          loading={loading.status}
+                          onClick={() => void changeStatus(record, "active")}
+                        >
+                          Activate
+                        </Button>
+                      )}
+                      <Popconfirm
+                        title="Delete this template?"
+                        description="The template will be archived and hidden from the list."
+                        okText="Delete"
+                        okButtonProps={{ danger: true }}
+                        onConfirm={() => void deleteTemplate(record)}
                       >
-                        Disable
-                      </Button>
-                    ) : (
-                      <Button
-                        size="small"
-                        icon={<CheckCircleOutlined />}
-                        loading={loading.status}
-                        onClick={() => void changeStatus(record, "active")}
-                      >
-                        Activate
-                      </Button>
-                    )
+                        <Button size="small" danger icon={<DeleteOutlined />} loading={loading.delete}>
+                          Delete
+                        </Button>
+                      </Popconfirm>
+                    </>
                   ) : null}
                 </Space>
               ),

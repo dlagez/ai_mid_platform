@@ -64,6 +64,22 @@ class DocumentService:
             query = query.filter(PlanDocument.document_type == document_type)
         return query.order_by(PlanDocument.created_at.desc()).all()
 
+    def delete_file(self, db: Session, record_id: int) -> PlanDocument:
+        record = db.query(PlanDocument).filter(PlanDocument.id == record_id).first()
+        if not record:
+            raise FileNotFoundError(f"PlanDocument id={record_id} not found")
+
+        try:
+            object_name = record.file_path.split("/", 1)[1]
+            self._minio.remove_object(self._bucket, object_name)
+        except Exception:
+            # Keep DB deletion available even if the object was already removed manually.
+            pass
+
+        db.delete(record)
+        db.commit()
+        return record
+
     def parse(self, db: Session, record_id: int, parser_provider: str | None = None) -> PlanDocument:
         record = db.query(PlanDocument).filter(PlanDocument.id == record_id).first()
         if not record:

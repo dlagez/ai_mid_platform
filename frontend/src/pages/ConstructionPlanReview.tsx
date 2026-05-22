@@ -5,6 +5,7 @@ import {
   Col,
   Divider,
   Empty,
+  Popconfirm,
   Row,
   Space,
   Table,
@@ -18,11 +19,13 @@ import type { UploadFile } from "antd";
 import type { DataNode } from "antd/es/tree";
 import {
   CloudUploadOutlined,
+  DeleteOutlined,
   FileTextOutlined,
   ReloadOutlined,
 } from "@ant-design/icons";
 import { PdfPreviewModal } from "../components/PdfPreviewModal";
 import {
+  deleteDocument,
   type DocumentType,
   getDocumentSections,
   listDocuments,
@@ -51,7 +54,7 @@ const DocumentUploadReviewPage = ({
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [parsed, setParsed] = useState<DocumentParseResult | null>(null);
   const [selectedSection, setSelectedSection] = useState<PlanSection | null>(null);
-  const [loading, setLoading] = useState({ files: false, upload: false, parse: false });
+  const [loading, setLoading] = useState({ files: false, upload: false, parse: false, delete: false });
   const [pdfPreview, setPdfPreview] = useState({ open: false, title: "", url: "" });
 
   const refreshFiles = async () => {
@@ -128,6 +131,23 @@ const DocumentUploadReviewPage = ({
       message.error("Parse failed.");
     } finally {
       setLoading((s) => ({ ...s, parse: false }));
+    }
+  };
+
+  const handleDelete = async (record: DocumentRecord) => {
+    setLoading((s) => ({ ...s, delete: true }));
+    try {
+      await deleteDocument(record.id);
+      message.success("Document deleted.");
+      if (parsed?.id === record.id) {
+        setParsed(null);
+        setSelectedSection(null);
+      }
+      await refreshFiles();
+    } catch {
+      message.error("Delete failed.");
+    } finally {
+      setLoading((s) => ({ ...s, delete: false }));
     }
   };
 
@@ -215,9 +235,9 @@ const DocumentUploadReviewPage = ({
                 },
                 {
                   title: "",
-                  width: 150,
+                  width: 220,
                   render: (_, record) => (
-                    <Space size={6}>
+                    <Space size={6} wrap>
                       <Button
                         size="small"
                         icon={<FileTextOutlined />}
@@ -234,6 +254,17 @@ const DocumentUploadReviewPage = ({
                       >
                         Parse
                       </Button>
+                      <Popconfirm
+                        title="Delete this document?"
+                        description="The uploaded file and parsed sections will be removed."
+                        okText="Delete"
+                        okButtonProps={{ danger: true }}
+                        onConfirm={() => void handleDelete(record)}
+                      >
+                        <Button size="small" danger icon={<DeleteOutlined />} loading={loading.delete}>
+                          Delete
+                        </Button>
+                      </Popconfirm>
                     </Space>
                   ),
                 },

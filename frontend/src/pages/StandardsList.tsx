@@ -1,12 +1,20 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useGetIdentity } from "@refinedev/core";
-import { Button, Card, DatePicker, Form, Input, Modal, Select, Space, Table, Tag, message } from "antd";
+import { Button, Card, DatePicker, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, message } from "antd";
 import type { Dayjs } from "dayjs";
 import dayjs from "dayjs";
-import { CheckCircleOutlined, EditOutlined, ImportOutlined, ReloadOutlined, StopOutlined } from "@ant-design/icons";
+import {
+  CheckCircleOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  ImportOutlined,
+  ReloadOutlined,
+  StopOutlined,
+} from "@ant-design/icons";
 import type { CurrentUser } from "../types/platform";
 import {
+  archiveStandard,
   importStandardFromDocument,
   listStandards,
   updateStandard,
@@ -32,7 +40,14 @@ export const StandardsListPage = () => {
   const [parseJobs, setParseJobs] = useState<PPOcrPdfJob[]>([]);
   const [editing, setEditing] = useState<StandardDocument | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [loading, setLoading] = useState({ list: false, save: false, import: false, status: false, parseJobs: false });
+  const [loading, setLoading] = useState({
+    list: false,
+    save: false,
+    import: false,
+    status: false,
+    delete: false,
+    parseJobs: false,
+  });
   const [editForm] = Form.useForm<StandardFormValues>();
   const [importForm] = Form.useForm<ImportStandardFormValues>();
 
@@ -146,6 +161,19 @@ export const StandardsListPage = () => {
     }
   };
 
+  const deleteStandard = async (standard: StandardDocument) => {
+    setLoading((current) => ({ ...current, delete: true }));
+    try {
+      await archiveStandard(standard.id);
+      message.success("Standard deleted.");
+      await refresh();
+    } catch {
+      message.error("Failed to delete standard.");
+    } finally {
+      setLoading((current) => ({ ...current, delete: false }));
+    }
+  };
+
   return (
     <div className="page">
       <div className="page-heading">
@@ -188,7 +216,7 @@ export const StandardsListPage = () => {
             },
             {
               title: "Actions",
-              width: 260,
+              width: 330,
               render: (_, record) => (
                 <Space size={6} wrap>
                   <Button size="small" onClick={() => navigate(`/standards/${record.id}/clauses`)}>
@@ -218,6 +246,17 @@ export const StandardsListPage = () => {
                           Activate
                         </Button>
                       )}
+                      <Popconfirm
+                        title="Delete this standard?"
+                        description="The standard will be archived and hidden from the list."
+                        okText="Delete"
+                        okButtonProps={{ danger: true }}
+                        onConfirm={() => void deleteStandard(record)}
+                      >
+                        <Button size="small" danger icon={<DeleteOutlined />} loading={loading.delete}>
+                          Delete
+                        </Button>
+                      </Popconfirm>
                     </>
                   ) : null}
                 </Space>

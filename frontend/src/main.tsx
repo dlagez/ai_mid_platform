@@ -77,14 +77,14 @@ const resources = [
     meta: { label: "Review of Construction Plan", icon: <FileTextOutlined /> },
   },
   {
-    name: "upload-templates",
-    list: "/upload-templates",
-    meta: { label: "Upload Templates", icon: <SnippetsOutlined />, parent: "construction-review" },
-  },
-  {
     name: "construction-plan",
     list: "/construction-plan",
     meta: { label: "Upload Construction Plan", icon: <FileSearchOutlined />, parent: "construction-review" },
+  },
+  {
+    name: "upload-templates",
+    list: "/upload-templates",
+    meta: { label: "Upload Templates", icon: <SnippetsOutlined />, parent: "construction-review" },
   },
   {
     name: "review-templates",

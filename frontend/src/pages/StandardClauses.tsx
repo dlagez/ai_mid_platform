@@ -10,6 +10,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Popconfirm,
   Select,
   Space,
   Switch,
@@ -20,9 +21,17 @@ import {
   message,
 } from "antd";
 import type { TablePaginationConfig } from "antd";
-import { ArrowLeftOutlined, EditOutlined, ReloadOutlined, RobotOutlined, SearchOutlined } from "@ant-design/icons";
+import {
+  ArrowLeftOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  ReloadOutlined,
+  RobotOutlined,
+  SearchOutlined,
+} from "@ant-design/icons";
 import type { CurrentUser } from "../types/platform";
 import {
+  deleteStandardClause,
   generateRuleCandidates,
   getStandard,
   listStandardClauses,
@@ -53,7 +62,7 @@ export const StandardClausesPage = () => {
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   const [editing, setEditing] = useState<StandardClause | null>(null);
   const [useLlm, setUseLlm] = useState(true);
-  const [loading, setLoading] = useState({ list: false, save: false, generate: false });
+  const [loading, setLoading] = useState({ list: false, save: false, delete: false, generate: false });
   const [filterForm] = Form.useForm<ClauseFilterValues>();
   const [editForm] = Form.useForm<StandardClausePayload>();
 
@@ -124,6 +133,20 @@ export const StandardClausesPage = () => {
       message.error("Failed to save clause.");
     } finally {
       setLoading((current) => ({ ...current, save: false }));
+    }
+  };
+
+  const removeClause = async (clause: StandardClause) => {
+    setLoading((current) => ({ ...current, delete: true }));
+    try {
+      await deleteStandardClause(clause.id);
+      message.success("Clause deleted.");
+      setSelectedRowKeys((keys) => keys.filter((key) => Number(key) !== clause.id));
+      await load();
+    } catch {
+      message.error("Failed to delete clause.");
+    } finally {
+      setLoading((current) => ({ ...current, delete: false }));
     }
   };
 
@@ -252,12 +275,25 @@ export const StandardClausesPage = () => {
             },
             {
               title: "Actions",
-              width: 90,
+              width: 170,
               render: (_, record) =>
                 isAdmin ? (
-                  <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
-                    Edit
-                  </Button>
+                  <Space size={6} wrap>
+                    <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
+                      Edit
+                    </Button>
+                    <Popconfirm
+                      title="Delete this clause?"
+                      description="The clause will be removed from this standard."
+                      okText="Delete"
+                      okButtonProps={{ danger: true }}
+                      onConfirm={() => void removeClause(record)}
+                    >
+                      <Button size="small" danger icon={<DeleteOutlined />} loading={loading.delete}>
+                        Delete
+                      </Button>
+                    </Popconfirm>
+                  </Space>
                 ) : null,
             },
           ]}

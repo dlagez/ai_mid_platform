@@ -109,17 +109,24 @@ async def list_documents(
         raise PlatformError(f"Invalid document_type: {document_type}", status_code=400)
     records = service.list_files(db, document_type=document_type)
     return [
-        DocumentItem(
-            id=r.id,
-            file_name=r.file_name,
-            file_path=r.file_path,
-            file_size=r.file_size,
-            document_type=r.document_type,
-            parse_status=r.parse_status,
-            created_at=r.created_at.isoformat() if r.created_at else "",
-        )
+        _to_document_item(r)
         for r in records
     ]
+
+
+@router.delete("/{record_id}", response_model=DocumentItem)
+async def delete_document(
+    record_id: int,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
+    service: Annotated[DocumentService, Depends(get_document_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> DocumentItem:
+    record = db.query(PlanDocument).filter(PlanDocument.id == record_id).first()
+    if not record:
+        raise PlatformError(f"Document id={record_id} not found", status_code=404)
+    item = _to_document_item(record)
+    service.delete_file(db, record_id)
+    return item
 
 
 @router.post("/{record_id}/parse", response_model=DocumentParseResponse)
@@ -212,6 +219,18 @@ def _build_section_tree(sections: list[PlanSection]) -> list[SectionItem]:
         else:
             roots.append(item)
     return roots
+
+
+def _to_document_item(record: PlanDocument) -> DocumentItem:
+    return DocumentItem(
+        id=record.id,
+        file_name=record.file_name,
+        file_path=record.file_path,
+        file_size=record.file_size,
+        document_type=record.document_type,
+        parse_status=record.parse_status,
+        created_at=record.created_at.isoformat() if record.created_at else "",
+    )
 
 
 def _sections_to_toc_text(sections: list[PlanSection]) -> str:

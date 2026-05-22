@@ -53,6 +53,11 @@ export const listDocuments = async (query?: { document_type?: DocumentType }) =>
   return data;
 };
 
+export const deleteDocument = async (id: number) => {
+  const { data } = await apiClient.delete<DocumentRecord>(`/documents/${id}`);
+  return data;
+};
+
 export const parseDocument = async (id: number) => {
   const { data } = await apiClient.post<DocumentParseResult>(`/documents/${id}/parse`);
   return data;
