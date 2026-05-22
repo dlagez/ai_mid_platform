@@ -34,7 +34,7 @@ export type StandardDocumentListResult = {
 };
 
 export type ImportStandardRequest = {
-  document_id: number;
+  document_id?: number | null;
   standard_code?: string | null;
   standard_name: string;
   standard_type?: string | null;

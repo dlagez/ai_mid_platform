@@ -25,6 +25,7 @@ export type PPOcrParseResult = {
 
 export type PPOcrPdfJob = {
   id: number;
+  parse_result_id: number | null;
   file_id: string;
   file_name: string;
   file_size: number;

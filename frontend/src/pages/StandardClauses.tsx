@@ -15,6 +15,7 @@ import {
   Switch,
   Table,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from "antd";
@@ -189,19 +190,19 @@ export const StandardClausesPage = () => {
         <div className="table-toolbar">
           <Space wrap>
             <Checkbox checked={useLlm} onChange={(event) => setUseLlm(event.target.checked)}>
-              Use LLM
+              使用 LLM
             </Checkbox>
-            {isAdmin ? (
+            <Tooltip title={getGenerateTooltip(isAdmin, selectedRowKeys.length)}>
               <Button
                 type="primary"
                 icon={<RobotOutlined />}
                 loading={loading.generate}
-                disabled={!selectedRowKeys.length}
+                disabled={!isAdmin || !selectedRowKeys.length}
                 onClick={() => void generateCandidates()}
               >
-                AI Generate Candidates
+                AI生成候选规则
               </Button>
-            ) : null}
+            </Tooltip>
           </Space>
         </div>
 
@@ -312,4 +313,14 @@ const summarize = (value: string) => {
     return "-";
   }
   return value.length > 140 ? `${value.slice(0, 140)}...` : value;
+};
+
+const getGenerateTooltip = (isAdmin: boolean, selectedCount: number) => {
+  if (!isAdmin) {
+    return "只有 admin 可以生成候选规则";
+  }
+  if (!selectedCount) {
+    return "请先勾选需要生成规则的条文";
+  }
+  return `已选择 ${selectedCount} 条条文`;
 };

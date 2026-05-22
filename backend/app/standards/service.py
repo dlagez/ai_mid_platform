@@ -68,18 +68,21 @@ class StandardService:
         data: ImportStandardFromDocumentRequest,
         created_by: int | None = None,
     ) -> tuple[StandardDocument, int]:
-        parse_result = db.query(ParseResult).filter(ParseResult.id == data.document_id).first()
-        if not parse_result:
-            raise PlatformError(f"Parse result id={data.document_id} not found", status_code=404)
+        parse_result: ParseResult | None = None
+        sections: list[ParseResultSection] = []
+        if data.document_id:
+            parse_result = db.query(ParseResult).filter(ParseResult.id == data.document_id).first()
+            if not parse_result:
+                raise PlatformError(f"Parse result id={data.document_id} not found", status_code=404)
 
-        sections = (
-            db.query(ParseResultSection)
-            .filter(ParseResultSection.document_id == parse_result.id)
-            .order_by(ParseResultSection.sort_no.asc())
-            .all()
-        )
-        if not sections:
-            raise PlatformError("The selected parse result has no parsed sections.", status_code=400)
+            sections = (
+                db.query(ParseResultSection)
+                .filter(ParseResultSection.document_id == parse_result.id)
+                .order_by(ParseResultSection.sort_no.asc())
+                .all()
+            )
+            if not sections:
+                raise PlatformError("The selected parse result has no parsed sections.", status_code=400)
 
         self._validate_standard_values("draft", data.standard_type)
         standard = StandardDocument(
@@ -88,8 +91,8 @@ class StandardService:
             standard_type=data.standard_type,
             version=data.version,
             effective_date=data.effective_date,
-            source_file_id=parse_result.job_id,
-            source_document_id=parse_result.id,
+            source_file_id=parse_result.job_id if parse_result else None,
+            source_document_id=parse_result.id if parse_result else None,
             status="draft",
             description=data.description,
             created_by=created_by,

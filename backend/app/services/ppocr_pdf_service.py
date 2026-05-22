@@ -228,6 +228,7 @@ def _object_name(path: str) -> str:
 def parse_job_to_dict(job: ParseJob) -> dict[str, Any]:
     return {
         "id": job.id,
+        "parse_result_id": job.result.id if job.result else None,
         "file_id": job.file_id,
         "file_name": job.file_name,
         "file_size": job.file_size,

@@ -55,6 +55,7 @@ class PPOcrParseResponse(BaseModel):
 
 class ParseJobItem(BaseModel):
     id: int
+    parse_result_id: int | None
     file_id: str
     file_name: str
     file_size: int

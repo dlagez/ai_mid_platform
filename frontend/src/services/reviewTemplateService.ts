@@ -31,7 +31,7 @@ export type ReviewTemplateListResult = {
 
 export type ImportTemplateRequest = {
   document_id: number;
-  name: string;
+  name?: string | null;
   code?: string | null;
   work_type?: string | null;
   description?: string | null;

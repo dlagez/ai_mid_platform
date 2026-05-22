@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
@@ -88,8 +89,8 @@ class ReviewTemplateService:
             raise PlatformError("The selected plan document has no parsed sections.", status_code=400)
 
         template = ReviewTemplate(
-            name=data.name,
-            code=data.code,
+            name=data.name or document.file_name,
+            code=data.code or self._generate_template_code(document.id),
             work_type=data.work_type,
             source_document_id=data.document_id,
             description=data.description,
@@ -186,6 +187,10 @@ class ReviewTemplateService:
     def _validate_status(self, status: str) -> None:
         if status not in TEMPLATE_STATUSES:
             raise PlatformError(f"Invalid template status: {status}", status_code=400)
+
+    def _generate_template_code(self, document_id: int) -> str:
+        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        return f"TPL-{document_id}-{timestamp}"
 
 
 def template_section_rules_to_tree(rules: list[TemplateSectionRule]) -> list[dict]:

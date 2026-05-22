@@ -57,6 +57,17 @@ export const ReviewTemplateListPage = () => {
     await loadDocuments();
   };
 
+  const handleDocumentSelect = (documentId: number) => {
+    const document = documents.find((item) => item.id === documentId);
+    if (!document) {
+      return;
+    }
+    form.setFieldsValue({
+      name: document.file_name,
+      code: generateTemplateCode(document.id),
+    });
+  };
+
   const submitImport = async () => {
     try {
       const values = await form.validateFields();
@@ -186,6 +197,7 @@ export const ReviewTemplateListPage = () => {
               loading={loading.documents}
               placeholder="Select document"
               optionFilterProp="label"
+              onChange={handleDocumentSelect}
               options={documents.map((document) => ({
                 value: document.id,
                 label: `${document.id} - ${document.file_name}`,
@@ -196,10 +208,14 @@ export const ReviewTemplateListPage = () => {
             <Input />
           </Form.Item>
           <Form.Item name="code" label="Code">
-            <Input />
+            <Input placeholder="Auto generated after selecting a document" />
           </Form.Item>
-          <Form.Item name="work_type" label="Work Type">
-            <Input />
+          <Form.Item
+            name="work_type"
+            label="Work Type (工程类型)"
+            tooltip="用于后续按工程类型匹配模板和审核规则，例如：模板工程、脚手架工程、基坑工程。"
+          >
+            <Input placeholder="例如：模板工程" />
           </Form.Item>
           <Form.Item name="description" label="Description">
             <Input.TextArea rows={3} />
@@ -216,3 +232,16 @@ const StatusTag = ({ status }: { status: string }) => {
 };
 
 const formatDateTime = (value: string | null) => (value ? new Date(value).toLocaleString() : "-");
+
+const generateTemplateCode = (documentId: number) => {
+  const now = new Date();
+  const timestamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+    String(now.getHours()).padStart(2, "0"),
+    String(now.getMinutes()).padStart(2, "0"),
+    String(now.getSeconds()).padStart(2, "0"),
+  ].join("");
+  return `TPL-${documentId}-${timestamp}`;
+};

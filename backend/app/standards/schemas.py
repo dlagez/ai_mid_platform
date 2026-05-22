@@ -53,7 +53,7 @@ class StandardDocumentList(BaseModel):
 
 
 class ImportStandardFromDocumentRequest(BaseModel):
-    document_id: int
+    document_id: int | None = None
     standard_code: str | None = None
     standard_name: str
     standard_type: str | None = None

@@ -49,6 +49,10 @@ class ModelService:
         provider_name = self._get_provider_for_model(model)
         provider_config = self.providers.get(provider_name, {})
 
+        # LiteLLM requires model names prefixed with provider (e.g. "dashscope/qwen3.6-plus")
+        if "/" not in model:
+            payload = {**payload, "model": f"{provider_name}/{model}"}
+
         client = LiteLLMClient(config=provider_config)
         return await client.completion(payload)
 

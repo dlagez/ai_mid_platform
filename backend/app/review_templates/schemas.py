@@ -48,7 +48,7 @@ class ReviewTemplateList(BaseModel):
 
 class ImportTemplateFromDocumentRequest(BaseModel):
     document_id: int
-    name: str
+    name: str | None = None
     code: str | None = None
     work_type: str | None = None
     description: str | None = None
