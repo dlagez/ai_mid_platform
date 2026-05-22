@@ -126,7 +126,18 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                   <Authenticated key="authenticated-routes" fallback={<CatchAllNavigate to="/login" />}>
                     <ThemedLayoutV2
                       Header={AppHeader}
-                      Sider={(props) => <ThemedSiderV2 {...props} fixed />}
+                      Sider={(props) => (
+                        <ThemedSiderV2
+                          {...props}
+                          fixed
+                          render={({ items, dashboard }) => (
+                            <>
+                              {dashboard}
+                              {items}
+                            </>
+                          )}
+                        />
+                      )}
                       Title={({ collapsed }) => (
                         <ThemedTitleV2 collapsed={collapsed} text="AI Mid" icon={<ApiOutlined />} />
                       )}
