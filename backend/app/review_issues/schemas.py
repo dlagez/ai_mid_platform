@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 class ReviewIssueRead(BaseModel):
     id: int
     task_id: int
+    version: int
     issue_type: str | None
     risk_level: str | None
     issue_title: str | None

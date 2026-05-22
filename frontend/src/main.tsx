@@ -21,6 +21,7 @@ import {
   AppstoreOutlined,
   AuditOutlined,
   BookOutlined,
+  FileDoneOutlined,
   DashboardOutlined,
   DatabaseOutlined,
   FileSearchOutlined,
@@ -47,6 +48,8 @@ import { TemplateSectionRulesPage } from "./pages/TemplateSectionRules";
 import { StandardsListPage } from "./pages/StandardsList";
 import { StandardClausesPage } from "./pages/StandardClauses";
 import { RuleCandidatesPage } from "./pages/RuleCandidates";
+import { ReviewTasksPage } from "./pages/ReviewTasks";
+import { ReviewTaskIssuesPage } from "./pages/ReviewTaskIssues";
 
 const resources = [
   {
@@ -92,6 +95,11 @@ const resources = [
     name: "rule-candidates",
     list: "/rule-candidates",
     meta: { label: "Rule Candidates", icon: <AuditOutlined />, parent: "construction-review" },
+  },
+  {
+    name: "review-tasks",
+    list: "/review-tasks",
+    meta: { label: "Review Tasks", icon: <FileDoneOutlined />, parent: "construction-review" },
   },
   {
     name: "utils",
@@ -158,6 +166,8 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                 <Route path="/standards" element={<StandardsListPage />} />
                 <Route path="/standards/:id/clauses" element={<StandardClausesPage />} />
                 <Route path="/rule-candidates" element={<RuleCandidatesPage />} />
+                <Route path="/review-tasks" element={<ReviewTasksPage />} />
+                <Route path="/review-tasks/:id" element={<ReviewTaskIssuesPage />} />
                 <Route path="/utils/ppocr" element={<UtilsPPOcrPage />} />
                 <Route path="*" element={<ErrorComponent />} />
               </Route>

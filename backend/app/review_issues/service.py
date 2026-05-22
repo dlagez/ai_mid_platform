@@ -53,7 +53,7 @@ class ReviewIssueService:
         task = db.query(ReviewTask).filter(ReviewTask.id == task_id).first()
         if not task:
             return
-        issues = db.query(ReviewIssue).filter(ReviewIssue.task_id == task_id).all()
+        issues = db.query(ReviewIssue).filter(ReviewIssue.task_id == task_id, ReviewIssue.version == task.version).all()
         task.total_issue_count = len(issues)
         task.critical_issue_count = sum(1 for issue in issues if issue.risk_level == "critical")
         task.major_issue_count = sum(1 for issue in issues if issue.risk_level == "major")

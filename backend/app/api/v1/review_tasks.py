@@ -70,6 +70,7 @@ async def list_review_task_issues(
     _: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[ReviewTaskService, Depends(get_review_task_service)],
     db: Annotated[Session, Depends(get_db)],
+    version: int | None = Query(None, ge=1),
     status: str | None = None,
     risk_level: str | None = None,
     issue_type: str | None = None,
@@ -79,6 +80,7 @@ async def list_review_task_issues(
     items, total = service.list_issues(
         db,
         task_id,
+        version=version,
         status=status,
         risk_level=risk_level,
         issue_type=issue_type,

@@ -29,6 +29,7 @@ class ReviewTaskRead(BaseModel):
     work_type: str | None
     review_mode: str
     status: str
+    version: int
     progress: int
     total_issue_count: int
     critical_issue_count: int
@@ -53,6 +54,7 @@ class ReviewTaskList(BaseModel):
 class ReviewTaskStartResponse(BaseModel):
     id: int
     status: str
+    version: int | None = None
     total_issue_count: int | None = None
     critical_issue_count: int | None = None
     major_issue_count: int | None = None

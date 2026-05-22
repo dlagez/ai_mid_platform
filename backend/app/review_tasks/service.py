@@ -79,12 +79,11 @@ class ReviewTaskService:
         task = self.get_task(db, task_id)
         if task.status == "running":
             raise PlatformError("Review task is already running.", status_code=409)
-        if task.status in {"pending_confirm", "completed"}:
-            raise PlatformError(f"Review task status is {task.status}; create a new task to run again.", status_code=400)
         result = run_review_task(task_id, db)
         return {
             "id": result["task_id"],
             "status": result["status"],
+            "version": result.get("version"),
             "total_issue_count": result.get("total_issue_count"),
             "critical_issue_count": result.get("critical_issue_count"),
             "major_issue_count": result.get("major_issue_count"),
@@ -96,14 +95,16 @@ class ReviewTaskService:
         db: Session,
         task_id: int,
         *,
+        version: int | None = None,
         status: str | None = None,
         risk_level: str | None = None,
         issue_type: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[ReviewIssue], int]:
-        self.get_task(db, task_id)
+        task = self.get_task(db, task_id)
         query = db.query(ReviewIssue).filter(ReviewIssue.task_id == task_id)
+        query = query.filter(ReviewIssue.version == (version or task.version))
         if status:
             query = query.filter(ReviewIssue.status == status)
         if risk_level:

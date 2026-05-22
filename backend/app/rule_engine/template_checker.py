@@ -204,4 +204,5 @@ def _check_required_points(
 
 
 def _add_log(db: Session, task_id: int, log: RuleExecutionLogCreate) -> None:
-    db.add(RuleExecutionLog(task_id=task_id, **log.__dict__))
+    task = db.query(ReviewTask).filter(ReviewTask.id == task_id).first()
+    db.add(RuleExecutionLog(task_id=task_id, version=task.version if task else 1, **log.__dict__))

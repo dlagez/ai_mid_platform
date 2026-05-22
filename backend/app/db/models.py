@@ -499,6 +499,7 @@ class ReviewTask(Base):
     work_type: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     review_mode: Mapped[str] = mapped_column(String(50), default="standard")
     status: Mapped[str] = mapped_column(String(50), default="created", index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1, index=True)
     progress: Mapped[int] = mapped_column(Integer, default=0)
     total_issue_count: Mapped[int] = mapped_column(Integer, default=0)
     critical_issue_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -535,6 +536,7 @@ class ReviewIssue(Base):
         ForeignKey("review_task.id", ondelete="CASCADE"),
         index=True,
     )
+    version: Mapped[int] = mapped_column(Integer, default=1, index=True)
     issue_type: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     risk_level: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     issue_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -588,6 +590,7 @@ class RuleExecutionLog(Base):
         ForeignKey("review_task.id", ondelete="CASCADE"),
         index=True,
     )
+    version: Mapped[int] = mapped_column(Integer, default=1, index=True)
     rule_type: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     rule_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     template_rule_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
