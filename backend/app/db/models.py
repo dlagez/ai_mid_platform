@@ -1,6 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, Numeric, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -279,3 +280,201 @@ class DocumentMarkdownMap(Base):
     anchor: Mapped[str] = mapped_column(String(64))
     block_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ReviewTemplate(Base):
+    __tablename__ = "review_template"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    code: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    work_type: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    source_document_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    version: Mapped[str] = mapped_column(String(50), default="v1.0")
+    status: Mapped[str] = mapped_column(String(50), default="draft", index=True)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    section_rules: Mapped[list["TemplateSectionRule"]] = relationship(
+        "TemplateSectionRule",
+        back_populates="template",
+        cascade="all, delete-orphan",
+        foreign_keys="TemplateSectionRule.template_id",
+    )
+
+
+class TemplateSectionRule(Base):
+    __tablename__ = "template_section_rule"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    template_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("review_template.id", ondelete="CASCADE"),
+        index=True,
+    )
+    parent_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("template_section_rule.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    section_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    standard_title: Mapped[str] = mapped_column(String(255))
+    level: Mapped[int] = mapped_column(Integer)
+    order_no: Mapped[int] = mapped_column(Integer, default=0)
+    required: Mapped[bool] = mapped_column(Boolean, default=True)
+    aliases: Mapped[list] = mapped_column(JSONB, default=list)
+    required_points: Mapped[list] = mapped_column(JSONB, default=list)
+    min_word_count: Mapped[int] = mapped_column(Integer, default=0)
+    risk_level: Mapped[str] = mapped_column(String(50), default="major")
+    match_strategy: Mapped[str] = mapped_column(String(50), default="title_semantic")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    template: Mapped[ReviewTemplate] = relationship(
+        "ReviewTemplate",
+        back_populates="section_rules",
+        foreign_keys=[template_id],
+    )
+    parent: Mapped["TemplateSectionRule | None"] = relationship(
+        "TemplateSectionRule",
+        remote_side=[id],
+        back_populates="children",
+    )
+    children: Mapped[list["TemplateSectionRule"]] = relationship(
+        "TemplateSectionRule",
+        back_populates="parent",
+        cascade="all, delete-orphan",
+    )
+
+
+class StandardDocument(Base):
+    __tablename__ = "standard_document"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    standard_code: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    standard_name: Mapped[str] = mapped_column(String(255))
+    standard_type: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    effective_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    source_file_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    source_document_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(50), default="draft", index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    clauses: Mapped[list["StandardClause"]] = relationship(
+        "StandardClause",
+        back_populates="standard",
+        cascade="all, delete-orphan",
+        foreign_keys="StandardClause.standard_id",
+    )
+
+
+class StandardClause(Base):
+    __tablename__ = "standard_clause"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    standard_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("standard_document.id", ondelete="CASCADE"),
+        index=True,
+    )
+    parent_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("standard_clause.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    chapter_no: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    clause_no: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    content: Mapped[str] = mapped_column(Text, default="")
+    level: Mapped[int] = mapped_column(Integer, default=1)
+    path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_mandatory: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    keywords: Mapped[list] = mapped_column(JSONB, default=list)
+    applicable_work_types: Mapped[list] = mapped_column(JSONB, default=list)
+    source_section_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    order_no: Mapped[int] = mapped_column(Integer, default=0)
+    embedding_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    standard: Mapped[StandardDocument] = relationship(
+        "StandardDocument",
+        back_populates="clauses",
+        foreign_keys=[standard_id],
+    )
+    parent: Mapped["StandardClause | None"] = relationship(
+        "StandardClause",
+        remote_side=[id],
+        back_populates="children",
+    )
+    children: Mapped[list["StandardClause"]] = relationship(
+        "StandardClause",
+        back_populates="parent",
+        cascade="all, delete-orphan",
+    )
+
+
+class ReviewRuleCandidate(Base):
+    __tablename__ = "review_rule_candidate"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    standard_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("standard_document.id"), nullable=True, index=True)
+    clause_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("standard_clause.id"), nullable=True, index=True)
+    rule_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    rule_type: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    work_type: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    check_object: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    operator: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    threshold_value: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    required_items: Mapped[list] = mapped_column(JSONB, default=list)
+    forbidden_items: Mapped[list] = mapped_column(JSONB, default=list)
+    applicable_condition: Mapped[dict] = mapped_column(JSONB, default=dict)
+    risk_level_suggestion: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    source_clause_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_confidence: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    ai_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), default="pending_review", index=True)
+    reviewed_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ReviewRule(Base):
+    __tablename__ = "review_rule"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    source_candidate_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("review_rule_candidate.id"),
+        nullable=True,
+        index=True,
+    )
+    source_type: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    standard_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("standard_document.id"), nullable=True, index=True)
+    clause_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("standard_clause.id"), nullable=True, index=True)
+    rule_name: Mapped[str] = mapped_column(String(255))
+    rule_type: Mapped[str] = mapped_column(String(100), index=True)
+    work_type: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    check_object: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    operator: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    threshold_value: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    required_items: Mapped[list] = mapped_column(JSONB, default=list)
+    forbidden_items: Mapped[list] = mapped_column(JSONB, default=list)
+    applicable_condition: Mapped[dict] = mapped_column(JSONB, default=dict)
+    risk_level: Mapped[str] = mapped_column(String(50), default="major", index=True)
+    status: Mapped[str] = mapped_column(String(50), default="active", index=True)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

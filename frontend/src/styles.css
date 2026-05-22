@@ -141,6 +141,39 @@ body {
   white-space: normal;
 }
 
+.table-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin: 12px 0;
+}
+
+.table-filter-form {
+  row-gap: 12px;
+  margin-bottom: 12px;
+}
+
+.narrow-form {
+  max-width: 720px;
+}
+
+.form-space-row {
+  display: flex;
+}
+
+.form-space-row > .ant-space-item {
+  min-width: 0;
+}
+
+.tree-muted-label {
+  color: #8c9aae;
+  font-size: 12px;
+}
+
+.preserve-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .openkb-command-panel {
   display: grid;
   grid-template-columns: minmax(420px, 1fr) minmax(260px, 0.8fr);

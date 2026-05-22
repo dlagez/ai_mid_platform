@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1 import auth, documents, knowledge, models, tasks, utils
+from app.api.v1 import auth, documents, knowledge, models, review_rules, review_templates, standards, tasks, utils
 from app.services.knowledge_service import KnowledgeService
 from app.utils.exceptions import register_exception_handlers
 from app.utils.langfuse import configure_langfuse_env, flush_langfuse
@@ -27,6 +27,35 @@ def create_app() -> FastAPI:
     app.include_router(knowledge.router, prefix="/api/v1/knowledge", tags=["knowledge"])
     app.include_router(documents.router, prefix="/api/v1/documents", tags=["documents"])
     app.include_router(utils.router, prefix="/api/v1/utils", tags=["utils"])
+    app.include_router(review_templates.router, prefix="/api/v1/review-templates", tags=["review-templates"])
+    app.include_router(
+        review_templates.section_rules_router,
+        prefix="/api/v1/template-section-rules",
+        tags=["review-templates"],
+    )
+    app.include_router(standards.router, prefix="/api/v1/standards", tags=["standards"])
+    app.include_router(standards.clauses_router, prefix="/api/v1/standard-clauses", tags=["standards"])
+    app.include_router(review_rules.router, prefix="/api/v1", tags=["review-rules"])
+    app.include_router(
+        review_templates.router,
+        prefix="/api/review-templates",
+        tags=["review-templates"],
+        include_in_schema=False,
+    )
+    app.include_router(
+        review_templates.section_rules_router,
+        prefix="/api/template-section-rules",
+        tags=["review-templates"],
+        include_in_schema=False,
+    )
+    app.include_router(standards.router, prefix="/api/standards", tags=["standards"], include_in_schema=False)
+    app.include_router(
+        standards.clauses_router,
+        prefix="/api/standard-clauses",
+        tags=["standards"],
+        include_in_schema=False,
+    )
+    app.include_router(review_rules.router, prefix="/api", tags=["review-rules"], include_in_schema=False)
 
     register_exception_handlers(app)
 

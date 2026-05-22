@@ -19,11 +19,14 @@ import { App as AntdApp, ConfigProvider } from "antd";
 import {
   ApiOutlined,
   AppstoreOutlined,
+  AuditOutlined,
+  BookOutlined,
   DashboardOutlined,
   DatabaseOutlined,
   FileSearchOutlined,
   FileTextOutlined,
   RobotOutlined,
+  SnippetsOutlined,
   ToolOutlined,
 } from "@ant-design/icons";
 import "@refinedev/antd/dist/reset.css";
@@ -38,6 +41,12 @@ import { OpenKBPage } from "./pages/OpenKB";
 import { TaskListPage } from "./pages/TaskList";
 import { ConstructionPlanReviewPage } from "./pages/ConstructionPlanReview";
 import { UtilsPPOcrPage } from "./pages/UtilsPPOcr";
+import { ReviewTemplateListPage } from "./pages/ReviewTemplateList";
+import { ReviewTemplateEditPage } from "./pages/ReviewTemplateEdit";
+import { TemplateSectionRulesPage } from "./pages/TemplateSectionRules";
+import { StandardsListPage } from "./pages/StandardsList";
+import { StandardClausesPage } from "./pages/StandardClauses";
+import { RuleCandidatesPage } from "./pages/RuleCandidates";
 
 const resources = [
   {
@@ -61,9 +70,28 @@ const resources = [
     meta: { label: "OpenKB", icon: <DatabaseOutlined /> },
   },
   {
+    name: "construction-review",
+    meta: { label: "Review of Construction Plan", icon: <FileTextOutlined /> },
+  },
+  {
     name: "construction-plan",
     list: "/construction-plan",
-    meta: { label: "Review of Construction Plan", icon: <FileTextOutlined /> },
+    meta: { label: "Upload Construction Plan", icon: <FileSearchOutlined />, parent: "construction-review" },
+  },
+  {
+    name: "review-templates",
+    list: "/review-templates",
+    meta: { label: "Review Templates", icon: <SnippetsOutlined />, parent: "construction-review" },
+  },
+  {
+    name: "standards",
+    list: "/standards",
+    meta: { label: "Standards Library", icon: <BookOutlined />, parent: "construction-review" },
+  },
+  {
+    name: "rule-candidates",
+    list: "/rule-candidates",
+    meta: { label: "Rule Candidates", icon: <AuditOutlined />, parent: "construction-review" },
   },
   {
     name: "utils",
@@ -113,6 +141,12 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                 <Route path="/models" element={<ModelCallPage />} />
                 <Route path="/openkb" element={<OpenKBPage />} />
                 <Route path="/construction-plan" element={<ConstructionPlanReviewPage />} />
+                <Route path="/review-templates" element={<ReviewTemplateListPage />} />
+                <Route path="/review-templates/:id" element={<ReviewTemplateEditPage />} />
+                <Route path="/review-templates/:id/section-rules" element={<TemplateSectionRulesPage />} />
+                <Route path="/standards" element={<StandardsListPage />} />
+                <Route path="/standards/:id/clauses" element={<StandardClausesPage />} />
+                <Route path="/rule-candidates" element={<RuleCandidatesPage />} />
                 <Route path="/utils/ppocr" element={<UtilsPPOcrPage />} />
                 <Route path="*" element={<ErrorComponent />} />
               </Route>

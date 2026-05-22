@@ -130,7 +130,7 @@ export const ConstructionPlanReviewPage = () => {
   return (
     <div className="page">
       <div className="page-heading">
-        <h1>Review of Construction Plan</h1>
+        <h1>Upload Construction Plan</h1>
         <Button icon={<ReloadOutlined />} loading={loading.files} onClick={() => void refreshFiles()}>
           Refresh
         </Button>
