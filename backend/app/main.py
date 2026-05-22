@@ -1,7 +1,19 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1 import auth, documents, knowledge, models, review_rules, review_templates, standards, tasks, utils
+from app.api.v1 import (
+    auth,
+    documents,
+    knowledge,
+    models,
+    review_issues,
+    review_rules,
+    review_tasks,
+    review_templates,
+    standards,
+    tasks,
+    utils,
+)
 from app.services.knowledge_service import KnowledgeService
 from app.utils.exceptions import register_exception_handlers
 from app.utils.langfuse import configure_langfuse_env, flush_langfuse
@@ -36,6 +48,8 @@ def create_app() -> FastAPI:
     app.include_router(standards.router, prefix="/api/v1/standards", tags=["standards"])
     app.include_router(standards.clauses_router, prefix="/api/v1/standard-clauses", tags=["standards"])
     app.include_router(review_rules.router, prefix="/api/v1", tags=["review-rules"])
+    app.include_router(review_tasks.router, prefix="/api/v1/review-tasks", tags=["review-tasks"])
+    app.include_router(review_issues.router, prefix="/api/v1/review-issues", tags=["review-issues"])
     app.include_router(
         review_templates.router,
         prefix="/api/review-templates",
@@ -56,6 +70,8 @@ def create_app() -> FastAPI:
         include_in_schema=False,
     )
     app.include_router(review_rules.router, prefix="/api", tags=["review-rules"], include_in_schema=False)
+    app.include_router(review_tasks.router, prefix="/api/review-tasks", tags=["review-tasks"], include_in_schema=False)
+    app.include_router(review_issues.router, prefix="/api/review-issues", tags=["review-issues"], include_in_schema=False)
 
     register_exception_handlers(app)
 

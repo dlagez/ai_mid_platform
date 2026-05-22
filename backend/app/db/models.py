@@ -478,3 +478,131 @@ class ReviewRule(Base):
     created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ReviewTask(Base):
+    __tablename__ = "review_task"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    task_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    plan_document_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("plan_document.id", ondelete="CASCADE"),
+        index=True,
+    )
+    template_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("review_template.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    work_type: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    review_mode: Mapped[str] = mapped_column(String(50), default="standard")
+    status: Mapped[str] = mapped_column(String(50), default="created", index=True)
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    total_issue_count: Mapped[int] = mapped_column(Integer, default=0)
+    critical_issue_count: Mapped[int] = mapped_column(Integer, default=0)
+    major_issue_count: Mapped[int] = mapped_column(Integer, default=0)
+    minor_issue_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    document: Mapped[PlanDocument] = relationship("PlanDocument", foreign_keys=[plan_document_id])
+    template: Mapped[ReviewTemplate | None] = relationship("ReviewTemplate", foreign_keys=[template_id])
+    issues: Mapped[list["ReviewIssue"]] = relationship(
+        "ReviewIssue",
+        back_populates="task",
+        cascade="all, delete-orphan",
+        foreign_keys="ReviewIssue.task_id",
+    )
+    execution_logs: Mapped[list["RuleExecutionLog"]] = relationship(
+        "RuleExecutionLog",
+        back_populates="task",
+        cascade="all, delete-orphan",
+        foreign_keys="RuleExecutionLog.task_id",
+    )
+
+
+class ReviewIssue(Base):
+    __tablename__ = "review_issue"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    task_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("review_task.id", ondelete="CASCADE"),
+        index=True,
+    )
+    issue_type: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    risk_level: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    issue_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    issue_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    plan_section_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("plan_section.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    plan_section_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    plan_original_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_type: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    source_rule_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("review_rule.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    source_template_rule_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("template_section_rule.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    standard_clause_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("standard_clause.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    ai_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    suggestion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), default="pending_confirm", index=True)
+    expert_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confirmed_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    task: Mapped[ReviewTask] = relationship("ReviewTask", back_populates="issues", foreign_keys=[task_id])
+    section: Mapped[PlanSection | None] = relationship("PlanSection", foreign_keys=[plan_section_id])
+
+
+class RuleExecutionLog(Base):
+    __tablename__ = "rule_execution_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    task_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("review_task.id", ondelete="CASCADE"),
+        index=True,
+    )
+    rule_type: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    rule_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    template_rule_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    plan_section_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("plan_section.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    status: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    matched_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expected_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actual_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+    task: Mapped[ReviewTask] = relationship("ReviewTask", back_populates="execution_logs", foreign_keys=[task_id])
+    section: Mapped[PlanSection | None] = relationship("PlanSection", foreign_keys=[plan_section_id])
