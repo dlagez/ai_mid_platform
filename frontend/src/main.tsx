@@ -47,6 +47,7 @@ import { ReviewTemplateEditPage } from "./pages/ReviewTemplateEdit";
 import { TemplateSectionRulesPage } from "./pages/TemplateSectionRules";
 import { StandardsListPage } from "./pages/StandardsList";
 import { StandardClausesPage } from "./pages/StandardClauses";
+import { CheckpointGenerationJobsPage } from "./pages/CheckpointGenerationJobs";
 import { ReviewCheckpointsPage } from "./pages/ReviewCheckpoints";
 import { ReviewTasksPage } from "./pages/ReviewTasks";
 import { ReviewTaskIssuesPage } from "./pages/ReviewTaskIssues";
@@ -95,6 +96,11 @@ const resources = [
     name: "standards",
     list: "/standards",
     meta: { label: "Standards Library", icon: <BookOutlined />, parent: "construction-review" },
+  },
+  {
+    name: "checkpoint-generation",
+    list: "/standards/checkpoint-generation",
+    meta: { label: "Checkpoint Generation", icon: <NodeIndexOutlined />, parent: "standards" },
   },
   {
     name: "review-checkpoints",
@@ -170,6 +176,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                 <Route path="/review-templates/:id" element={<ReviewTemplateEditPage />} />
                 <Route path="/review-templates/:id/section-rules" element={<TemplateSectionRulesPage />} />
                 <Route path="/standards" element={<StandardsListPage />} />
+                <Route path="/standards/checkpoint-generation" element={<CheckpointGenerationJobsPage />} />
                 <Route path="/standards/:id/clauses" element={<StandardClausesPage />} />
                 <Route path="/review-checkpoints" element={<ReviewCheckpointsPage />} />
                 <Route path="/review-tasks" element={<ReviewTasksPage />} />

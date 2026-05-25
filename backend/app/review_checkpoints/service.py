@@ -9,7 +9,13 @@ from typing import Any
 from sqlalchemy import String, cast, or_
 from sqlalchemy.orm import Session
 
-from app.db.models import ReviewCheckpoint, StandardClause, StandardDocument
+from app.db.models import (
+    ReviewCheckpoint,
+    ReviewCheckpointGenerationItem,
+    ReviewCheckpointGenerationJob,
+    StandardClause,
+    StandardDocument,
+)
 from app.review_checkpoints.schemas import (
     GenerateCheckpointsFromClausesRequest,
     ReviewCheckpointCreate,
@@ -28,6 +34,7 @@ CHECKPOINT_TYPES = {
     "cross_section_consistency",
 }
 CHECKPOINT_STATUSES = {"draft", "active", "disabled", "archived"}
+GENERATION_JOB_STATUSES = {"queued", "running", "success", "partial_success", "failed"}
 
 CHECKPOINT_PROMPT = """你是一名施工规范审查点抽取助手。
 任务：将规范条文转换为施工方案审查点。一个条文可以生成多个审查点。
@@ -152,6 +159,207 @@ class ReviewCheckpointService:
         db.refresh(row)
         return row
 
+    def create_generation_job(
+        self,
+        db: Session,
+        data: GenerateCheckpointsFromClausesRequest,
+        *,
+        created_by: int | None = None,
+    ) -> ReviewCheckpointGenerationJob:
+        clause_ids = _dedupe_ints(data.clause_ids)
+        if not clause_ids:
+            raise PlatformError("clause_ids is required.", status_code=400)
+
+        clauses = (
+            db.query(StandardClause)
+            .filter(StandardClause.id.in_(clause_ids))
+            .order_by(StandardClause.standard_id.asc(), StandardClause.order_no.asc(), StandardClause.id.asc())
+            .all()
+        )
+        found_ids = {clause.id for clause in clauses}
+        missing = [clause_id for clause_id in clause_ids if clause_id not in found_ids]
+        standard_id = data.standard_id or (clauses[0].standard_id if clauses else None)
+
+        job = ReviewCheckpointGenerationJob(
+            standard_id=standard_id,
+            clause_ids=clause_ids,
+            use_llm=data.use_llm,
+            status="queued",
+            total_clauses=len(clause_ids),
+            processed_clauses=len(missing),
+            failed_count=len(missing),
+            failed=[{"clause_id": clause_id, "reason": "clause not found"} for clause_id in missing],
+            created_by=created_by,
+        )
+        db.add(job)
+        db.flush()
+
+        for clause in clauses:
+            db.add(
+                ReviewCheckpointGenerationItem(
+                    job_id=job.id,
+                    standard_id=clause.standard_id,
+                    clause_id=clause.id,
+                    clause_no=clause.clause_no,
+                    clause_title=clause.title,
+                    status="queued",
+                )
+            )
+        for clause_id in missing:
+            db.add(
+                ReviewCheckpointGenerationItem(
+                    job_id=job.id,
+                    standard_id=standard_id,
+                    clause_id=clause_id,
+                    status="failed",
+                    message="clause not found",
+                    started_at=datetime.utcnow(),
+                    finished_at=datetime.utcnow(),
+                )
+            )
+
+        db.commit()
+        db.refresh(job)
+
+        if clauses:
+            from app.workers.review_checkpoint_tasks import generate_review_checkpoints_job
+
+            async_result = generate_review_checkpoints_job.delay(job.id)
+            job.celery_task_id = async_result.id
+            db.commit()
+            db.refresh(job)
+        else:
+            job.status = "failed"
+            job.error_message = "No valid clauses found."
+            job.finished_at = datetime.utcnow()
+            db.commit()
+            db.refresh(job)
+
+        return job
+
+    def list_generation_jobs(
+        self,
+        db: Session,
+        *,
+        standard_id: int | None = None,
+        status: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[ReviewCheckpointGenerationJob], int]:
+        query = db.query(ReviewCheckpointGenerationJob)
+        if standard_id:
+            query = query.filter(ReviewCheckpointGenerationJob.standard_id == standard_id)
+        if status:
+            query = query.filter(ReviewCheckpointGenerationJob.status == status)
+        total = query.count()
+        items = (
+            query.order_by(ReviewCheckpointGenerationJob.created_at.desc(), ReviewCheckpointGenerationJob.id.desc())
+            .offset(max(page - 1, 0) * page_size)
+            .limit(page_size)
+            .all()
+        )
+        return items, total
+
+    def get_generation_job(self, db: Session, job_id: int) -> ReviewCheckpointGenerationJob:
+        row = db.query(ReviewCheckpointGenerationJob).filter(ReviewCheckpointGenerationJob.id == job_id).first()
+        if not row:
+            raise PlatformError(f"Checkpoint generation job id={job_id} not found", status_code=404)
+        return row
+
+    def list_generation_items(
+        self,
+        db: Session,
+        *,
+        job_id: int | None = None,
+        standard_id: int | None = None,
+        status: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[ReviewCheckpointGenerationItem], int]:
+        query = db.query(ReviewCheckpointGenerationItem)
+        if job_id:
+            query = query.filter(ReviewCheckpointGenerationItem.job_id == job_id)
+        if standard_id:
+            query = query.filter(ReviewCheckpointGenerationItem.standard_id == standard_id)
+        if status:
+            query = query.filter(ReviewCheckpointGenerationItem.status == status)
+        total = query.count()
+        items = (
+            query.order_by(ReviewCheckpointGenerationItem.created_at.desc(), ReviewCheckpointGenerationItem.id.desc())
+            .offset(max(page - 1, 0) * page_size)
+            .limit(page_size)
+            .all()
+        )
+        return items, total
+
+    async def run_generation_job(self, db: Session, job_id: int) -> dict[str, Any]:
+        job = self.get_generation_job(db, job_id)
+        if job.status not in {"queued", "failed"}:
+            return {"job_id": job.id, "status": job.status, "message": "job already started"}
+
+        job.status = "running"
+        job.started_at = datetime.utcnow()
+        job.error_message = None
+        db.commit()
+
+        items = (
+            db.query(ReviewCheckpointGenerationItem)
+            .filter(ReviewCheckpointGenerationItem.job_id == job.id)
+            .filter(ReviewCheckpointGenerationItem.status == "queued")
+            .order_by(ReviewCheckpointGenerationItem.id.asc())
+            .all()
+        )
+
+        try:
+            for item in items:
+                item.status = "running"
+                item.started_at = datetime.utcnow()
+                db.commit()
+
+                clause = db.query(StandardClause).filter(StandardClause.id == item.clause_id).first()
+                if not clause:
+                    item.status = "failed"
+                    item.message = "clause not found"
+                    item.finished_at = datetime.utcnow()
+                    self._refresh_generation_job_summary(db, job.id)
+                    continue
+
+                standard = db.query(StandardDocument).filter(StandardDocument.id == clause.standard_id).first()
+                try:
+                    checkpoint_ids, skipped_reason = await self._create_checkpoints_for_clause(
+                        db,
+                        standard,
+                        clause,
+                        use_llm=job.use_llm,
+                        serial_offset=job.created_count + 1,
+                    )
+                    item.checkpoint_ids = checkpoint_ids
+                    item.created_count = len(checkpoint_ids)
+                    item.status = "skipped" if skipped_reason else "success"
+                    item.message = skipped_reason or f"created {len(checkpoint_ids)} checkpoint(s)"
+                    item.finished_at = datetime.utcnow()
+                    db.commit()
+                except Exception as exc:
+                    db.rollback()
+                    item = db.query(ReviewCheckpointGenerationItem).filter(ReviewCheckpointGenerationItem.id == item.id).first()
+                    if item:
+                        item.status = "failed"
+                        item.message = str(exc)
+                        item.finished_at = datetime.utcnow()
+                        db.commit()
+                self._refresh_generation_job_summary(db, job.id)
+        except Exception as exc:
+            job = self.get_generation_job(db, job_id)
+            job.status = "failed"
+            job.error_message = str(exc)
+            job.finished_at = datetime.utcnow()
+            db.commit()
+            raise
+
+        self._refresh_generation_job_summary(db, job.id, finalize=True)
+        job = self.get_generation_job(db, job.id)
+        return {"job_id": job.id, "status": job.status, "created_count": job.created_count}
+
     async def generate_from_standard_clauses(
         self,
         db: Session,
@@ -175,44 +383,17 @@ class ReviewCheckpointService:
         for clause in clauses:
             standard = db.query(StandardDocument).filter(StandardDocument.id == clause.standard_id).first()
             try:
-                extracted = await self._extract_checkpoints(standard, clause, use_llm=data.use_llm)
-                checkpoint_payloads = extracted if isinstance(extracted, list) else extracted.get("checkpoints", [])
-                if not checkpoint_payloads:
-                    skipped.append({"clause_id": clause.id, "reason": "no checkpoint generated"})
+                ids, skipped_reason = await self._create_checkpoints_for_clause(
+                    db,
+                    standard,
+                    clause,
+                    use_llm=data.use_llm,
+                    serial_offset=len(checkpoint_ids) + 1,
+                )
+                if skipped_reason:
+                    skipped.append({"clause_id": clause.id, "reason": skipped_reason})
                     continue
-                for payload in checkpoint_payloads:
-                    checkpoint_type = payload.get("checkpoint_type") or "semantic_check"
-                    if checkpoint_type not in CHECKPOINT_TYPES:
-                        checkpoint_type = "semantic_check"
-                    checkpoint = ReviewCheckpoint(
-                        checkpoint_code=payload.get("checkpoint_code") or self._default_code(clause, len(checkpoint_ids) + 1),
-                        checkpoint_name=(payload.get("checkpoint_name") or self._default_name(clause))[:255],
-                        checkpoint_type=checkpoint_type,
-                        domain=payload.get("domain") or None,
-                        subdomain=payload.get("subdomain") or None,
-                        work_type=payload.get("work_type") or None,
-                        standard_id=clause.standard_id,
-                        clause_id=clause.id,
-                        clause_no=clause.clause_no,
-                        clause_text=clause.content,
-                        chapter_types=_as_list(payload.get("chapter_types")),
-                        target_objects=_as_list(payload.get("target_objects")),
-                        target_parameters=_as_list(payload.get("target_parameters")),
-                        keywords=_as_list(payload.get("keywords")),
-                        check_goal=payload.get("check_goal") or clause.content[:300],
-                        check_method=payload.get("check_method") or checkpoint_type,
-                        expected_items=_as_list(payload.get("expected_items")),
-                        forbidden_items=_as_list(payload.get("forbidden_items")),
-                        parameters=_as_dict(payload.get("parameters")),
-                        applicable_condition=_as_dict(payload.get("applicable_condition")),
-                        risk_level=payload.get("risk_level") or ("critical" if clause.is_mandatory else "major"),
-                        is_mandatory=bool(payload.get("is_mandatory", clause.is_mandatory)),
-                        priority=int(payload.get("priority") or (100 if clause.is_mandatory else 0)),
-                        status="active",
-                    )
-                    db.add(checkpoint)
-                    db.flush()
-                    checkpoint_ids.append(checkpoint.id)
+                checkpoint_ids.extend(ids)
             except Exception as exc:
                 db.rollback()
                 failed.append({"clause_id": clause.id, "reason": str(exc)})
@@ -225,6 +406,93 @@ class ReviewCheckpointService:
             "failed": failed,
             "skipped": skipped,
         }
+
+    async def _create_checkpoints_for_clause(
+        self,
+        db: Session,
+        standard: StandardDocument | None,
+        clause: StandardClause,
+        *,
+        use_llm: bool,
+        serial_offset: int = 1,
+    ) -> tuple[list[int], str | None]:
+        extracted = await self._extract_checkpoints(standard, clause, use_llm=use_llm)
+        checkpoint_payloads = extracted if isinstance(extracted, list) else extracted.get("checkpoints", [])
+        if not checkpoint_payloads:
+            return [], "no checkpoint generated"
+
+        checkpoint_ids: list[int] = []
+        for index, payload in enumerate(checkpoint_payloads, start=serial_offset):
+            checkpoint_type = payload.get("checkpoint_type") or "semantic_check"
+            if checkpoint_type not in CHECKPOINT_TYPES:
+                checkpoint_type = "semantic_check"
+            checkpoint = ReviewCheckpoint(
+                checkpoint_code=payload.get("checkpoint_code") or self._default_code(clause, index),
+                checkpoint_name=(payload.get("checkpoint_name") or self._default_name(clause))[:255],
+                checkpoint_type=checkpoint_type,
+                domain=payload.get("domain") or None,
+                subdomain=payload.get("subdomain") or None,
+                work_type=payload.get("work_type") or None,
+                standard_id=clause.standard_id,
+                clause_id=clause.id,
+                clause_no=clause.clause_no,
+                clause_text=clause.content,
+                chapter_types=_as_list(payload.get("chapter_types")),
+                target_objects=_as_list(payload.get("target_objects")),
+                target_parameters=_as_list(payload.get("target_parameters")),
+                keywords=_as_list(payload.get("keywords")),
+                check_goal=payload.get("check_goal") or clause.content[:300],
+                check_method=payload.get("check_method") or checkpoint_type,
+                expected_items=_as_list(payload.get("expected_items")),
+                forbidden_items=_as_list(payload.get("forbidden_items")),
+                parameters=_as_dict(payload.get("parameters")),
+                applicable_condition=_as_dict(payload.get("applicable_condition")),
+                risk_level=payload.get("risk_level") or ("critical" if clause.is_mandatory else "major"),
+                is_mandatory=bool(payload.get("is_mandatory", clause.is_mandatory)),
+                priority=int(payload.get("priority") or (100 if clause.is_mandatory else 0)),
+                status="active",
+            )
+            db.add(checkpoint)
+            db.flush()
+            checkpoint_ids.append(checkpoint.id)
+        return checkpoint_ids, None
+
+    def _refresh_generation_job_summary(self, db: Session, job_id: int, *, finalize: bool = False) -> None:
+        job = self.get_generation_job(db, job_id)
+        items = db.query(ReviewCheckpointGenerationItem).filter(ReviewCheckpointGenerationItem.job_id == job.id).all()
+        created_ids: list[int] = []
+        failed: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+        processed = 0
+        for item in items:
+            if item.status in {"success", "skipped", "failed"}:
+                processed += 1
+            if item.checkpoint_ids:
+                created_ids.extend(int(checkpoint_id) for checkpoint_id in item.checkpoint_ids)
+            if item.status == "failed":
+                failed.append({"clause_id": item.clause_id, "clause_no": item.clause_no, "reason": item.message or "failed"})
+            if item.status == "skipped":
+                skipped.append({"clause_id": item.clause_id, "clause_no": item.clause_no, "reason": item.message or "skipped"})
+
+        job.processed_clauses = processed
+        job.created_count = len(created_ids)
+        job.failed_count = len(failed)
+        job.skipped_count = len(skipped)
+        job.checkpoint_ids = created_ids
+        job.failed = failed
+        job.skipped = skipped
+        if finalize or processed >= job.total_clauses:
+            job.finished_at = datetime.utcnow()
+            if job.created_count > 0 and job.failed_count == 0:
+                job.status = "success"
+            elif job.created_count > 0:
+                job.status = "partial_success"
+            else:
+                job.status = "failed"
+                job.error_message = "No checkpoint generated."
+        else:
+            job.status = "running"
+        db.commit()
 
     async def _extract_checkpoints(
         self,
@@ -340,6 +608,17 @@ def _as_list(value: Any) -> list:
 
 def _as_dict(value: Any) -> dict:
     return value if isinstance(value, dict) else {}
+
+
+def _dedupe_ints(values: list[int]) -> list[int]:
+    seen: set[int] = set()
+    result: list[int] = []
+    for value in values:
+        int_value = int(value)
+        if int_value not in seen:
+            seen.add(int_value)
+            result.append(int_value)
+    return result
 
 
 def _parse_json(content: str) -> dict[str, Any] | list[dict[str, Any]]:

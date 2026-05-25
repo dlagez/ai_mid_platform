@@ -19,3 +19,4 @@ def run_platform_task(task_type: str, payload: dict[str, Any]) -> dict[str, Any]
 
 
 from app.workers import ppocr_pdf_tasks  # noqa: E402,F401
+from app.workers import review_checkpoint_tasks  # noqa: E402,F401

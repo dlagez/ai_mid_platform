@@ -75,6 +75,7 @@ export type ReviewCheckpointListResult = {
 };
 
 export type GenerateCheckpointsRequest = {
+  standard_id?: number;
   clause_ids: number[];
   use_llm: boolean;
 };
@@ -84,6 +85,74 @@ export type GenerateCheckpointsResult = {
   checkpoint_ids: number[];
   failed: Array<Record<string, unknown>>;
   skipped: Array<Record<string, unknown>>;
+};
+
+export type CheckpointGenerationJob = {
+  id: number;
+  standard_id: number | null;
+  clause_ids: number[];
+  use_llm: boolean;
+  status: string;
+  total_clauses: number;
+  processed_clauses: number;
+  created_count: number;
+  failed_count: number;
+  skipped_count: number;
+  checkpoint_ids: number[];
+  failed: Array<Record<string, unknown>>;
+  skipped: Array<Record<string, unknown>>;
+  celery_task_id: string | null;
+  error_message: string | null;
+  created_by: number | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CheckpointGenerationItem = {
+  id: number;
+  job_id: number;
+  standard_id: number | null;
+  clause_id: number | null;
+  clause_no: string | null;
+  clause_title: string | null;
+  status: string;
+  checkpoint_ids: number[];
+  created_count: number;
+  message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CheckpointGenerationJobListResult = {
+  items: CheckpointGenerationJob[];
+  total: number;
+  page: number;
+  page_size: number;
+};
+
+export type CheckpointGenerationItemListResult = {
+  items: CheckpointGenerationItem[];
+  total: number;
+  page: number;
+  page_size: number;
+};
+
+export type CheckpointGenerationJobQuery = {
+  standard_id?: number;
+  status?: string;
+  page?: number;
+  page_size?: number;
+};
+
+export type CheckpointGenerationItemQuery = {
+  standard_id?: number;
+  status?: string;
+  page?: number;
+  page_size?: number;
 };
 
 export const listReviewCheckpoints = async (query: ReviewCheckpointQuery = {}) => {
@@ -110,6 +179,36 @@ export const generateReviewCheckpoints = async (payload: GenerateCheckpointsRequ
   const { data } = await apiClient.post<GenerateCheckpointsResult>(
     "/review-checkpoints/generate-from-standard-clauses",
     payload,
+  );
+  return data;
+};
+
+export const createCheckpointGenerationJob = async (payload: GenerateCheckpointsRequest) => {
+  const { data } = await apiClient.post<{ job: CheckpointGenerationJob }>("/review-checkpoints/generation-jobs", payload);
+  return data.job;
+};
+
+export const listCheckpointGenerationJobs = async (query: CheckpointGenerationJobQuery = {}) => {
+  const { data } = await apiClient.get<CheckpointGenerationJobListResult>("/review-checkpoints/generation-jobs", {
+    params: query,
+  });
+  return data;
+};
+
+export const listCheckpointGenerationItems = async (query: CheckpointGenerationItemQuery = {}) => {
+  const { data } = await apiClient.get<CheckpointGenerationItemListResult>("/review-checkpoints/generation-items", {
+    params: query,
+  });
+  return data;
+};
+
+export const listCheckpointGenerationJobItems = async (
+  jobId: number,
+  query: Omit<CheckpointGenerationItemQuery, "standard_id"> = {},
+) => {
+  const { data } = await apiClient.get<CheckpointGenerationItemListResult>(
+    `/review-checkpoints/generation-jobs/${jobId}/items`,
+    { params: query },
   );
   return data;
 };

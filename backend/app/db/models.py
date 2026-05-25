@@ -564,6 +564,70 @@ class ReviewCheckpoint(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class ReviewCheckpointGenerationJob(Base):
+    __tablename__ = "review_checkpoint_generation_job"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    standard_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("standard_document.id", ondelete="SET NULL"), nullable=True, index=True)
+    clause_ids: Mapped[list] = mapped_column(JSONB, default=list)
+    use_llm: Mapped[bool] = mapped_column(Boolean, default=True)
+    status: Mapped[str] = mapped_column(String(50), default="queued", index=True)
+    total_clauses: Mapped[int] = mapped_column(Integer, default=0)
+    processed_clauses: Mapped[int] = mapped_column(Integer, default=0)
+    created_count: Mapped[int] = mapped_column(Integer, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0)
+    skipped_count: Mapped[int] = mapped_column(Integer, default=0)
+    checkpoint_ids: Mapped[list] = mapped_column(JSONB, default=list)
+    failed: Mapped[list] = mapped_column(JSONB, default=list)
+    skipped: Mapped[list] = mapped_column(JSONB, default=list)
+    celery_task_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    standard: Mapped[StandardDocument | None] = relationship("StandardDocument", foreign_keys=[standard_id])
+    items: Mapped[list["ReviewCheckpointGenerationItem"]] = relationship(
+        "ReviewCheckpointGenerationItem",
+        back_populates="job",
+        cascade="all, delete-orphan",
+        foreign_keys="ReviewCheckpointGenerationItem.job_id",
+    )
+
+
+class ReviewCheckpointGenerationItem(Base):
+    __tablename__ = "review_checkpoint_generation_item"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    job_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("review_checkpoint_generation_job.id", ondelete="CASCADE"),
+        index=True,
+    )
+    standard_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("standard_document.id", ondelete="SET NULL"), nullable=True, index=True)
+    clause_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("standard_clause.id", ondelete="SET NULL"), nullable=True, index=True)
+    clause_no: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    clause_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(String(50), default="queued", index=True)
+    checkpoint_ids: Mapped[list] = mapped_column(JSONB, default=list)
+    created_count: Mapped[int] = mapped_column(Integer, default=0)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    job: Mapped[ReviewCheckpointGenerationJob] = relationship(
+        "ReviewCheckpointGenerationJob",
+        back_populates="items",
+        foreign_keys=[job_id],
+    )
+    standard: Mapped[StandardDocument | None] = relationship("StandardDocument", foreign_keys=[standard_id])
+    clause: Mapped[StandardClause | None] = relationship("StandardClause", foreign_keys=[clause_id])
+
+
 class CheckpointMatchResult(Base):
     __tablename__ = "checkpoint_match_result"
 

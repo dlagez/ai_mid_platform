@@ -30,7 +30,7 @@ import {
   SearchOutlined,
 } from "@ant-design/icons";
 import type { CurrentUser } from "../types/platform";
-import { generateReviewCheckpoints } from "../services/reviewCheckpointService";
+import { createCheckpointGenerationJob } from "../services/reviewCheckpointService";
 import {
   deleteStandardClause,
   getStandard,
@@ -158,14 +158,11 @@ export const StandardClausesPage = () => {
     }
     setLoading((current) => ({ ...current, checkpoint: true }));
     try {
-      const result = await generateReviewCheckpoints({ clause_ids: ids, use_llm: useLlm });
-      message.success(`Generated ${result.created_count} checkpoints.`);
-      if (result.failed.length) {
-        message.warning(`${result.failed.length} clauses failed. Check backend logs for details.`);
-      }
+      const job = await createCheckpointGenerationJob({ standard_id: standardId, clause_ids: ids, use_llm: useLlm });
+      message.success(`Checkpoint generation job #${job.id} queued.`);
       setSelectedRowKeys([]);
     } catch {
-      message.error("Failed to generate review checkpoints.");
+      message.error("Failed to submit checkpoint generation job.");
     } finally {
       setLoading((current) => ({ ...current, checkpoint: false }));
     }

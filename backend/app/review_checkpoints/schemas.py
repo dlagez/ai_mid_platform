@@ -99,6 +99,7 @@ class ReviewCheckpointList(BaseModel):
 
 
 class GenerateCheckpointsFromClausesRequest(BaseModel):
+    standard_id: int | None = None
     clause_ids: list[int]
     use_llm: bool = True
 
@@ -108,3 +109,65 @@ class GenerateCheckpointsFromClausesResponse(BaseModel):
     checkpoint_ids: list[int]
     failed: list[dict]
     skipped: list[dict]
+
+
+class CheckpointGenerationJobRead(BaseModel):
+    id: int
+    standard_id: int | None
+    clause_ids: list
+    use_llm: bool
+    status: str
+    total_clauses: int
+    processed_clauses: int
+    created_count: int
+    failed_count: int
+    skipped_count: int
+    checkpoint_ids: list
+    failed: list
+    skipped: list
+    celery_task_id: str | None
+    error_message: str | None
+    created_by: int | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CheckpointGenerationJobList(BaseModel):
+    items: list[CheckpointGenerationJobRead]
+    total: int
+    page: int
+    page_size: int
+
+
+class CheckpointGenerationItemRead(BaseModel):
+    id: int
+    job_id: int
+    standard_id: int | None
+    clause_id: int | None
+    clause_no: str | None
+    clause_title: str | None
+    status: str
+    checkpoint_ids: list
+    created_count: int
+    message: str | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CheckpointGenerationItemList(BaseModel):
+    items: list[CheckpointGenerationItemRead]
+    total: int
+    page: int
+    page_size: int
+
+
+class CheckpointGenerationJobCreateResponse(BaseModel):
+    job: CheckpointGenerationJobRead

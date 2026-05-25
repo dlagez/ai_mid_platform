@@ -8,6 +8,7 @@ import {
   InputNumber,
   Modal,
   Popconfirm,
+  Progress,
   Select,
   Space,
   Switch,
@@ -30,8 +31,10 @@ import type { CurrentUser } from "../types/platform";
 import {
   createReviewCheckpoint,
   deleteReviewCheckpoint,
+  listCheckpointGenerationJobs,
   listReviewCheckpoints,
   updateReviewCheckpoint,
+  type CheckpointGenerationJob,
   type ReviewCheckpoint,
   type ReviewCheckpointPayload,
   type ReviewCheckpointQuery,
@@ -56,11 +59,12 @@ export const ReviewCheckpointsPage = () => {
   const { data: user } = useGetIdentity<CurrentUser>();
   const isAdmin = user?.role === "admin";
   const [items, setItems] = useState<ReviewCheckpoint[]>([]);
+  const [recentJobs, setRecentJobs] = useState<CheckpointGenerationJob[]>([]);
   const [total, setTotal] = useState(0);
   const [query, setQuery] = useState<ReviewCheckpointQuery>({ page: 1, page_size: 20 });
   const [editing, setEditing] = useState<ReviewCheckpoint | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [loading, setLoading] = useState({ list: false, save: false, create: false, delete: false });
+  const [loading, setLoading] = useState({ list: false, save: false, create: false, delete: false, jobs: false });
   const [filterForm] = Form.useForm<CheckpointFilterValues>();
   const [editForm] = Form.useForm<CheckpointFormValues>();
   const [createForm] = Form.useForm<CheckpointFormValues>();
@@ -79,8 +83,21 @@ export const ReviewCheckpointsPage = () => {
     }
   };
 
+  const loadRecentJobs = async () => {
+    setLoading((current) => ({ ...current, jobs: true }));
+    try {
+      const result = await listCheckpointGenerationJobs({ page: 1, page_size: 3 });
+      setRecentJobs(result.items);
+    } catch {
+      message.error("Failed to load checkpoint generation progress.");
+    } finally {
+      setLoading((current) => ({ ...current, jobs: false }));
+    }
+  };
+
   useEffect(() => {
     void load();
+    void loadRecentJobs();
   }, []);
 
   const applyFilter = async () => {
@@ -189,6 +206,32 @@ export const ReviewCheckpointsPage = () => {
           ) : null}
         </Space>
       </div>
+
+      <Card title="Generation Progress" loading={loading.jobs}>
+        {recentJobs.length ? (
+          <Space direction="vertical" style={{ width: "100%" }}>
+            {recentJobs.map((job) => (
+              <div key={job.id}>
+                <Space wrap>
+                  <Typography.Text strong>Job #{job.id}</Typography.Text>
+                  <GenerationStatusTag status={job.status} />
+                  <Typography.Text type="secondary">
+                    Clauses {job.processed_clauses}/{job.total_clauses}, created {job.created_count}, failed{" "}
+                    {job.failed_count}, skipped {job.skipped_count}
+                  </Typography.Text>
+                </Space>
+                <Progress
+                  percent={progressPercent(job)}
+                  size="small"
+                  status={job.status === "failed" ? "exception" : job.status === "running" ? "active" : "normal"}
+                />
+              </div>
+            ))}
+          </Space>
+        ) : (
+          <Typography.Text type="secondary">No checkpoint generation jobs yet.</Typography.Text>
+        )}
+      </Card>
 
       <Card>
         <Form form={filterForm} layout="inline" className="table-filter-form">
@@ -459,6 +502,27 @@ const RiskTag = ({ risk }: { risk: string }) => {
 const StatusTag = ({ status }: { status: string }) => {
   const color = status === "active" ? "green" : status === "disabled" ? "red" : status === "archived" ? "default" : "blue";
   return <Tag color={color}>{status}</Tag>;
+};
+
+const GenerationStatusTag = ({ status }: { status: string }) => {
+  const color =
+    status === "success"
+      ? "green"
+      : status === "partial_success"
+        ? "gold"
+        : status === "failed"
+          ? "red"
+          : status === "running"
+            ? "blue"
+            : "default";
+  return <Tag color={color}>{status}</Tag>;
+};
+
+const progressPercent = (job: CheckpointGenerationJob) => {
+  if (!job.total_clauses) {
+    return 0;
+  }
+  return Math.round((job.processed_clauses / job.total_clauses) * 100);
 };
 
 const toFormValues = (checkpoint: ReviewCheckpoint): CheckpointFormValues => ({
