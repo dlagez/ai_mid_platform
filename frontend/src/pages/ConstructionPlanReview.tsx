@@ -393,7 +393,7 @@ const DocumentUploadReviewPage = ({
         </Col>
 
         <Col xs={24} xl={14}>
-          <Card title="Sections">
+          <Card title={parsed ? `Sections — ${parsed.file_name}` : "Sections"}>
             {parsed ? (
               <Space direction="vertical" size={8} style={{ width: "100%" }}>
                 <Space>
@@ -459,7 +459,7 @@ export const TemplateUploadPage = () => (
     documentType="template"
     title="Upload Templates"
     uploadCardTitle="Upload Template Document"
-    emptyDescription="Upload a template document, then view the parsed section tree and content."
+    emptyDescription="Click a document row on the left to view its parsed sections here."
   />
 );
 
@@ -468,7 +468,7 @@ export const ConstructionPlanReviewPage = () => (
     documentType="construction_plan"
     title="Upload Construction Plan"
     uploadCardTitle="Upload Construction Plan Document"
-    emptyDescription="Upload a construction plan document, then view the parsed section tree and content."
+    emptyDescription="Click a document row on the left to view its parsed sections here."
   />
 );
 
