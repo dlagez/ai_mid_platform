@@ -35,6 +35,7 @@ class PlanDocument(Base):
     file_path: Mapped[str] = mapped_column(String(512))
     file_size: Mapped[int] = mapped_column(BigInteger)
     document_type: Mapped[str] = mapped_column(String(32), default="template", index=True)
+    section_parse_mode: Mapped[str] = mapped_column(String(64), default="docling_auto", index=True)
     parse_status: Mapped[str] = mapped_column(String(32), default="uploaded", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

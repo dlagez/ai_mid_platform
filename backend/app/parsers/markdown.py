@@ -7,8 +7,17 @@ from app.parsers.section_strategy import (
 )
 
 
-def parse_markdown_sections(markdown: str) -> list[ParsedSection]:
-    return parse_sections_with_strategy(markdown, strategy="auto")
+def parse_markdown_sections(
+    markdown: str,
+    *,
+    strategy: str = "auto",
+    use_toc_outline: bool = False,
+) -> list[ParsedSection]:
+    return parse_sections_with_strategy(
+        markdown,
+        strategy=strategy,
+        use_toc_outline=use_toc_outline,
+    )
 
 
 def _clean_markdown_line(line: str) -> str:

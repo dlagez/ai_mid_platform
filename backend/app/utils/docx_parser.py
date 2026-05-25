@@ -1,18 +1,10 @@
-from dataclasses import dataclass, field
 import re
 import zipfile
 import xml.etree.ElementTree as ET
 
+from app.parsers.base import ParsedSection
+
 NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
-
-
-@dataclass
-class ParsedSection:
-    level: int
-    title: str
-    section_no: str | None
-    content: str = ""
-    children: list["ParsedSection"] = field(default_factory=list)
 
 
 def parse_word(file_path: str) -> str:
@@ -49,6 +41,8 @@ def parse_word_sections(file_path: str) -> list[ParsedSection]:
 
     for text, style_id, style_name in paragraphs:
         if not text:
+            continue
+        if _matches_toc(style_id or "", style_name or "") is not None:
             continue
 
         heading = _detect_heading(text, style_id or "", style_name or "", use_native_headings)

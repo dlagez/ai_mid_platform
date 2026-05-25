@@ -12,6 +12,11 @@ from app.db.models import PlanDocument, PlanSection
 from app.db.session import SessionLocal
 from app.parsers.base import ParsedSection
 from app.parsers.factory import get_parser, validate_parser_file
+from app.parsers.section_parse_strategies import (
+    DEFAULT_SECTION_PARSE_MODE,
+    parse_construction_plan_sections,
+    resolve_section_parse_mode,
+)
 from configs.settings import settings
 
 
@@ -30,13 +35,19 @@ class DocumentService:
             self._minio.make_bucket(self._bucket)
 
     async def upload(
-        self, db: Session, file: UploadFile, uploaded_by: str, document_type: str = "template"
+        self,
+        db: Session,
+        file: UploadFile,
+        uploaded_by: str,
+        document_type: str = "template",
+        section_parse_mode: str | None = None,
     ) -> PlanDocument:
         del uploaded_by
         self._ensure_bucket()
         content = await file.read()
         file_name = file.filename or "unnamed.docx"
         object_name = f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{file_name}"
+        resolved_section_parse_mode = resolve_section_parse_mode(section_parse_mode)
 
         self._minio.put_object(
             bucket_name=self._bucket,
@@ -51,6 +62,7 @@ class DocumentService:
             file_path=f"{self._bucket}/{object_name}",
             file_size=len(content),
             document_type=document_type,
+            section_parse_mode=resolved_section_parse_mode,
             parse_status="uploaded",
         )
         db.add(record)
@@ -80,10 +92,19 @@ class DocumentService:
         db.commit()
         return record
 
-    def parse(self, db: Session, record_id: int, parser_provider: str | None = None) -> PlanDocument:
+    def parse(
+        self,
+        db: Session,
+        record_id: int,
+        parser_provider: str | None = None,
+        section_parse_mode: str | None = None,
+    ) -> PlanDocument:
         record = db.query(PlanDocument).filter(PlanDocument.id == record_id).first()
         if not record:
             raise FileNotFoundError(f"PlanDocument id={record_id} not found")
+
+        if section_parse_mode:
+            record.section_parse_mode = resolve_section_parse_mode(section_parse_mode)
 
         record.parse_status = "parsing"
         db.commit()
@@ -92,8 +113,12 @@ class DocumentService:
         try:
             validate_parser_file(parser_provider, record.file_name)
             tmp_path = self._download_to_temp(record)
-            parser = get_parser(parser_provider, record.file_name)
-            sections = parser.parse_sections(tmp_path, record.file_name)
+            sections = self._parse_document_sections(
+                record,
+                tmp_path,
+                parser_provider,
+                record.section_parse_mode,
+            )
             db.query(PlanSection).filter(PlanSection.document_id == record.id).delete()
             sort_counter = 1
             for section in sections:
@@ -113,10 +138,15 @@ class DocumentService:
             if tmp_path:
                 os.unlink(tmp_path)
 
-    def parse_in_background(self, record_id: int, parser_provider: str | None = None) -> None:
+    def parse_in_background(
+        self,
+        record_id: int,
+        parser_provider: str | None = None,
+        section_parse_mode: str | None = None,
+    ) -> None:
         db = SessionLocal()
         try:
-            self.parse(db, record_id, parser_provider)
+            self.parse(db, record_id, parser_provider, section_parse_mode)
         finally:
             db.close()
 
@@ -144,11 +174,33 @@ class DocumentService:
         validate_parser_file(parser_provider, record.file_name)
         tmp_path = self._download_to_temp(record)
         try:
-            parser = get_parser(parser_provider, record.file_name)
-            sections = parser.parse_sections(tmp_path, record.file_name)
+            sections = self._parse_document_sections(
+                record,
+                tmp_path,
+                parser_provider,
+                record.section_parse_mode or DEFAULT_SECTION_PARSE_MODE,
+            )
             return "\n".join(_sections_to_toc_lines(sections))
         finally:
             os.unlink(tmp_path)
+
+    def _parse_document_sections(
+        self,
+        record: PlanDocument,
+        file_path: str,
+        parser_provider: str | None,
+        section_parse_mode: str | None,
+    ) -> list[ParsedSection]:
+        suffix = os.path.splitext(record.file_name)[1].lower()
+        if record.document_type == "construction_plan" and suffix == ".docx":
+            return parse_construction_plan_sections(
+                file_path,
+                record.file_name,
+                section_parse_mode=section_parse_mode,
+                document_type=record.document_type,
+            )
+        parser = get_parser(parser_provider, record.file_name)
+        return parser.parse_sections(file_path, record.file_name)
 
     def _download_to_temp(self, record: PlanDocument) -> str:
         object_name = record.file_path.split("/", 1)[1]

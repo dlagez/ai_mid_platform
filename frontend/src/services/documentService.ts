@@ -1,11 +1,20 @@
 import { apiClient } from "./apiClient";
 
+export type SectionParseMode = "docling_auto" | "docling_toc_outline" | "word_native";
+
+export type SectionParseModeItem = {
+  mode: SectionParseMode;
+  label: string;
+  description: string;
+};
+
 export type DocumentRecord = {
   id: number;
   file_name: string;
   file_path: string;
   file_size: number;
   document_type: DocumentType;
+  section_parse_mode: SectionParseMode;
   parse_status: string;
   created_at: string;
 };
@@ -16,12 +25,14 @@ export type DocumentUploadResult = {
   id: number;
   file_name: string;
   document_type: DocumentType;
+  section_parse_mode: SectionParseMode;
   status: string;
 };
 
 export type DocumentParseResult = {
   id: number;
   file_name: string;
+  section_parse_mode: SectionParseMode;
   parse_status: string;
   toc_text: string;
   sections: PlanSection[];
@@ -92,10 +103,22 @@ export type PlanSection = {
   children: PlanSection[];
 };
 
-export const uploadDocument = async (file: File, documentType: DocumentType = "template") => {
+export const listSectionParseModes = async () => {
+  const { data } = await apiClient.get<SectionParseModeItem[]>("/documents/section-parse-modes");
+  return data;
+};
+
+export const uploadDocument = async (
+  file: File,
+  documentType: DocumentType = "template",
+  options?: { sectionParseMode?: SectionParseMode },
+) => {
   const form = new FormData();
   form.append("file", file);
   form.append("document_type", documentType);
+  if (options?.sectionParseMode) {
+    form.append("section_parse_mode", options.sectionParseMode);
+  }
   const { data } = await apiClient.post<DocumentUploadResult>("/documents/upload", form);
   return data;
 };
@@ -110,8 +133,10 @@ export const deleteDocument = async (id: number) => {
   return data;
 };
 
-export const parseDocument = async (id: number) => {
-  const { data } = await apiClient.post<DocumentParseResult>(`/documents/${id}/parse`);
+export const parseDocument = async (id: number, sectionParseMode?: SectionParseMode) => {
+  const { data } = await apiClient.post<DocumentParseResult>(`/documents/${id}/parse`, null, {
+    params: sectionParseMode ? { section_parse_mode: sectionParseMode } : undefined,
+  });
   return data;
 };
 

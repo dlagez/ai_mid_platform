@@ -17,7 +17,7 @@ class DoclingParser:
 
     def parse_sections(self, file_path: str, file_name: str) -> list[ParsedSection]:
         markdown = self.convert_to_markdown(file_path, file_name)
-        return parse_markdown_sections(markdown)
+        return parse_markdown_sections(markdown, strategy="auto", use_toc_outline=False)
 
     def convert_to_markdown(self, file_path: str, file_name: str) -> str:
         suffix = Path(file_name).suffix.lower()

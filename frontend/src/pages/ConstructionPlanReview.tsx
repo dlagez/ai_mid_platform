@@ -11,6 +11,7 @@ import {
   Row,
   Space,
   Spin,
+  Select,
   Table,
   Tag,
   Tree,
@@ -36,8 +37,11 @@ import {
   getDocumentSections,
   listChapterProfileJobs,
   listDocuments,
+  listSectionParseModes,
   parseDocument,
   type PlanSection,
+  type SectionParseMode,
+  type SectionParseModeItem,
   uploadDocument,
   type DocumentParseResult,
   type DocumentRecord,
@@ -68,6 +72,8 @@ const DocumentUploadReviewPage = ({
   const [parsingFileId, setParsingFileId] = useState<number | null>(null);
   const [viewingFileId, setViewingFileId] = useState<number | null>(null);
   const [pdfPreview, setPdfPreview] = useState({ open: false, title: "", url: "" });
+  const [sectionParseModes, setSectionParseModes] = useState<SectionParseModeItem[]>([]);
+  const [sectionParseMode, setSectionParseMode] = useState<SectionParseMode>("docling_auto");
   const enableChapterProfiles = documentType === "construction_plan";
 
   const refreshFiles = async () => {
@@ -102,6 +108,11 @@ const DocumentUploadReviewPage = ({
   useEffect(() => {
     void refreshFiles();
     void refreshProfileJobs();
+    if (enableChapterProfiles) {
+      void listSectionParseModes()
+        .then(setSectionParseModes)
+        .catch(() => message.error("Failed to load section parse modes."));
+    }
   }, []);
 
   useEffect(() => {
@@ -123,9 +134,12 @@ const DocumentUploadReviewPage = ({
       message.warning("Select a Word, Excel, PDF, or image file first.");
       return;
     }
+    const isDocx = originFile.name.toLowerCase().endsWith(".docx");
     setLoading((s) => ({ ...s, upload: true }));
     try {
-      const result = await uploadDocument(originFile, documentType);
+      const result = await uploadDocument(originFile, documentType, {
+        sectionParseMode: enableChapterProfiles && isDocx ? sectionParseMode : undefined,
+      });
       message.success(`Uploaded: ${result.file_name}. Parsing started.`);
       setFileList([]);
       await refreshFiles();
@@ -173,8 +187,12 @@ const DocumentUploadReviewPage = ({
 
   const executeParse = async (record: DocumentRecord) => {
     setParsingFileId(record.id);
+    const reparseMode =
+      enableChapterProfiles && record.file_name.toLowerCase().endsWith(".docx")
+        ? record.section_parse_mode || sectionParseMode
+        : undefined;
     try {
-      const result = await parseDocument(record.id);
+      const result = await parseDocument(record.id, reparseMode);
       setParsed(result);
       selectFirstSection(result);
       setSelectedFileId(record.id);
@@ -267,6 +285,25 @@ const DocumentUploadReviewPage = ({
               >
                 <Button icon={<CloudUploadOutlined />}>Select Document File</Button>
               </Upload>
+              {enableChapterProfiles ? (
+                <div>
+                  <Typography.Text type="secondary">Word 分章策略（仅 .docx）</Typography.Text>
+                  <Select
+                    style={{ width: "100%", marginTop: 4 }}
+                    value={sectionParseMode}
+                    options={
+                      sectionParseModes.length
+                        ? sectionParseModes.map((item) => ({
+                            value: item.mode,
+                            label: item.label,
+                            title: item.description,
+                          }))
+                        : [{ value: "docling_auto", label: "Docling 线性分章（原方案）" }]
+                    }
+                    onChange={(value) => setSectionParseMode(value)}
+                  />
+                </div>
+              ) : null}
               <Button
                 type="primary"
                 loading={loading.upload}
@@ -313,6 +350,17 @@ const DocumentUploadReviewPage = ({
                   width: 92,
                   render: (v: string) => <ParseStatusTag status={v} />,
                 },
+                ...(enableChapterProfiles
+                  ? [
+                      {
+                        title: "Parse Mode",
+                        dataIndex: "section_parse_mode",
+                        width: 130,
+                        ellipsis: true,
+                        render: (v: string) => sectionParseModes.find((m) => m.mode === v)?.label ?? v,
+                      },
+                    ]
+                  : []),
                 {
                   title: "Size",
                   dataIndex: "file_size",
@@ -403,9 +451,15 @@ const DocumentUploadReviewPage = ({
             <Spin spinning={viewingFileId !== null}>
             {parsed ? (
               <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                <Space>
+                <Space wrap>
                   <Tag color="blue">{parsed.file_name}</Tag>
                   <ParseStatusTag status={parsed.parse_status} />
+                  {enableChapterProfiles ? (
+                    <Tag>
+                      {sectionParseModes.find((m) => m.mode === parsed.section_parse_mode)?.label ??
+                        parsed.section_parse_mode}
+                    </Tag>
+                  ) : null}
                 </Space>
                 {parsed.sections.length ? (
                   <Row gutter={[16, 16]}>
