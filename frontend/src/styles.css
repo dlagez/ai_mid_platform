@@ -141,6 +141,23 @@ body {
   white-space: normal;
 }
 
+.document-row {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.document-row:hover {
+  background-color: #e6f4ff;
+}
+
+.document-row-selected {
+  background-color: #e6f4ff;
+}
+
+.document-row-selected:hover {
+  background-color: #bae0ff;
+}
+
 .table-toolbar {
   display: flex;
   justify-content: flex-end;
