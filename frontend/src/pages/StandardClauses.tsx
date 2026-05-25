@@ -30,6 +30,7 @@ import {
   SearchOutlined,
 } from "@ant-design/icons";
 import type { CurrentUser } from "../types/platform";
+import { generateReviewCheckpoints } from "../services/reviewCheckpointService";
 import {
   deleteStandardClause,
   generateRuleCandidates,
@@ -62,7 +63,7 @@ export const StandardClausesPage = () => {
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   const [editing, setEditing] = useState<StandardClause | null>(null);
   const [useLlm, setUseLlm] = useState(true);
-  const [loading, setLoading] = useState({ list: false, save: false, delete: false, generate: false });
+  const [loading, setLoading] = useState({ list: false, save: false, delete: false, generate: false, checkpoint: false });
   const [filterForm] = Form.useForm<ClauseFilterValues>();
   const [editForm] = Form.useForm<StandardClausePayload>();
 
@@ -171,6 +172,27 @@ export const StandardClausesPage = () => {
     }
   };
 
+  const generateCheckpoints = async () => {
+    const ids = selectedRowKeys.map((key) => Number(key));
+    if (!ids.length) {
+      message.warning("Select clauses first.");
+      return;
+    }
+    setLoading((current) => ({ ...current, checkpoint: true }));
+    try {
+      const result = await generateReviewCheckpoints({ clause_ids: ids, use_llm: useLlm });
+      message.success(`Generated ${result.created_count} checkpoints.`);
+      if (result.failed.length) {
+        message.warning(`${result.failed.length} clauses failed. Check backend logs for details.`);
+      }
+      setSelectedRowKeys([]);
+    } catch {
+      message.error("Failed to generate review checkpoints.");
+    } finally {
+      setLoading((current) => ({ ...current, checkpoint: false }));
+    }
+  };
+
   return (
     <div className="page">
       <div className="page-heading">
@@ -224,6 +246,16 @@ export const StandardClausesPage = () => {
                 onClick={() => void generateCandidates()}
               >
                 AI生成候选规则
+              </Button>
+            </Tooltip>
+            <Tooltip title={getGenerateTooltip(isAdmin, selectedRowKeys.length)}>
+              <Button
+                icon={<RobotOutlined />}
+                loading={loading.checkpoint}
+                disabled={!isAdmin || !selectedRowKeys.length}
+                onClick={() => void generateCheckpoints()}
+              >
+                AI生成审查点
               </Button>
             </Tooltip>
           </Space>

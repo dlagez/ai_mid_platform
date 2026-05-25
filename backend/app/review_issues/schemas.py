@@ -20,6 +20,10 @@ class ReviewIssueRead(BaseModel):
     source_rule_id: int | None
     source_template_rule_id: int | None
     standard_clause_id: int | None
+    checkpoint_id: int | None = None
+    match_result_id: int | None = None
+    confidence: float | None = None
+    confidence_reason: str | None = None
     ai_reason: str | None
     suggestion: str | None
     status: str

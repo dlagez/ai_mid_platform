@@ -5,6 +5,12 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.chapter_profile.schemas import BuildChapterProfilesResponse
+from app.chapter_profile.service import ChapterProfileService, get_chapter_profile_service
+from app.checkpoint_executor.schemas import RunCheckpointReviewResponse
+from app.checkpoint_executor.service import CheckpointExecutorService, get_checkpoint_executor_service
+from app.checkpoint_matcher.schemas import MatchCheckpointsResponse
+from app.checkpoint_matcher.service import CheckpointMatcherService, get_checkpoint_matcher_service
 from app.db.session import get_db
 from app.review_issues.schemas import ReviewIssueList
 from app.review_tasks.schemas import ReviewTaskCreate, ReviewTaskList, ReviewTaskRead, ReviewTaskStartResponse
@@ -88,3 +94,33 @@ async def list_review_task_issues(
         page_size=page_size,
     )
     return ReviewIssueList(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.post("/{task_id}/build-chapter-profiles", response_model=BuildChapterProfilesResponse)
+async def build_chapter_profiles(
+    task_id: int,
+    _: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[ChapterProfileService, Depends(get_chapter_profile_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> BuildChapterProfilesResponse:
+    return await service.build_profiles(db, task_id)
+
+
+@router.post("/{task_id}/match-checkpoints", response_model=MatchCheckpointsResponse)
+async def match_review_checkpoints(
+    task_id: int,
+    _: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[CheckpointMatcherService, Depends(get_checkpoint_matcher_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> MatchCheckpointsResponse:
+    return service.match_task_checkpoints(db, task_id)
+
+
+@router.post("/{task_id}/run-checkpoint-review", response_model=RunCheckpointReviewResponse)
+async def run_checkpoint_review(
+    task_id: int,
+    _: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[CheckpointExecutorService, Depends(get_checkpoint_executor_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> RunCheckpointReviewResponse:
+    return service.run_checkpoint_review(db, task_id)

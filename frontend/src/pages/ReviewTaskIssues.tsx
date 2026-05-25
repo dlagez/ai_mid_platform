@@ -22,14 +22,19 @@ import {
   CloseCircleOutlined,
   EditOutlined,
   EyeOutlined,
+  NodeIndexOutlined,
   PlayCircleOutlined,
+  ProfileOutlined,
   ReloadOutlined,
   SearchOutlined,
 } from "@ant-design/icons";
 import {
+  buildChapterProfiles,
   confirmReviewIssue,
   getReviewTask,
   listReviewTaskIssues,
+  matchReviewCheckpoints,
+  runCheckpointReview,
   startReviewTask,
   type ReviewIssue,
   type ReviewIssueConfirmRequest,
@@ -60,7 +65,14 @@ export const ReviewTaskIssuesPage = () => {
   const [query, setQuery] = useState<ReviewIssueListQuery>({ page: 1, page_size: 20 });
   const [selected, setSelected] = useState<ReviewIssue | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [loading, setLoading] = useState({ list: false, start: false, confirm: false });
+  const [loading, setLoading] = useState({
+    list: false,
+    start: false,
+    confirm: false,
+    profiles: false,
+    match: false,
+    checkpointRun: false,
+  });
   const [filterForm] = Form.useForm<IssueFilterValues>();
   const [confirmForm] = Form.useForm<ConfirmFormValues>();
 
@@ -99,6 +111,46 @@ export const ReviewTaskIssuesPage = () => {
       message.error("Failed to start review task.");
     } finally {
       setLoading((current) => ({ ...current, start: false }));
+    }
+  };
+
+  const buildProfiles = async () => {
+    setLoading((current) => ({ ...current, profiles: true }));
+    try {
+      const result = await buildChapterProfiles(taskId);
+      message.success(`Profiles ready: ${result.created_count} created, ${result.updated_count} updated.`);
+      if (result.failed.length) {
+        message.warning(`${result.failed.length} sections used rule-only profiles.`);
+      }
+    } catch {
+      message.error("Failed to build chapter profiles.");
+    } finally {
+      setLoading((current) => ({ ...current, profiles: false }));
+    }
+  };
+
+  const matchCheckpoints = async () => {
+    setLoading((current) => ({ ...current, match: true }));
+    try {
+      const result = await matchReviewCheckpoints(taskId);
+      message.success(`Matched checkpoints: ${result.selected_count} selected, ${result.candidate_count} candidates.`);
+    } catch {
+      message.error("Failed to match checkpoints.");
+    } finally {
+      setLoading((current) => ({ ...current, match: false }));
+    }
+  };
+
+  const runCheckpointFlow = async () => {
+    setLoading((current) => ({ ...current, checkpointRun: true }));
+    try {
+      const result = await runCheckpointReview(taskId);
+      message.success(`Checkpoint review generated ${result.issue_count} issues.`);
+      await load();
+    } catch {
+      message.error("Failed to run checkpoint review.");
+    } finally {
+      setLoading((current) => ({ ...current, checkpointRun: false }));
     }
   };
 
@@ -195,6 +247,23 @@ export const ReviewTaskIssuesPage = () => {
         </Card>
       ) : null}
 
+      <Card title="Review Methods">
+        <Space wrap size={12}>
+          <Button type="primary" icon={<PlayCircleOutlined />} loading={loading.start} onClick={() => void startTask()}>
+            规则引擎审核
+          </Button>
+          <Button icon={<ProfileOutlined />} loading={loading.profiles} onClick={() => void buildProfiles()}>
+            生成章节画像
+          </Button>
+          <Button icon={<NodeIndexOutlined />} loading={loading.match} onClick={() => void matchCheckpoints()}>
+            匹配审查点
+          </Button>
+          <Button type="primary" icon={<PlayCircleOutlined />} loading={loading.checkpointRun} onClick={() => void runCheckpointFlow()}>
+            审查点审核
+          </Button>
+        </Space>
+      </Card>
+
       <Card>
         <Form form={filterForm} layout="inline" className="table-filter-form">
           <Form.Item name="version" label="Version">
@@ -238,7 +307,18 @@ export const ReviewTaskIssuesPage = () => {
             { title: "Issue Type", dataIndex: "issue_type", width: 190 },
             { title: "Title", dataIndex: "issue_title", ellipsis: true },
             { title: "Plan Section", dataIndex: "plan_section_title", width: 180, ellipsis: true },
-            { title: "Source", dataIndex: "source_type", width: 130 },
+            {
+              title: "Source",
+              dataIndex: "source_type",
+              width: 150,
+              render: (value: string | null) => <SourceTag source={value} />,
+            },
+            {
+              title: "Confidence",
+              dataIndex: "confidence",
+              width: 110,
+              render: (value: number | null) => (value === null || value === undefined ? "-" : value.toFixed(2)),
+            },
             {
               title: "Status",
               dataIndex: "status",
@@ -341,11 +421,17 @@ const IssueDetail = ({ issue }: { issue: ReviewIssue }) => (
       <Descriptions.Item label="Standard Clause ID">{issue.standard_clause_id ?? "-"}</Descriptions.Item>
       <Descriptions.Item label="Rule ID">{issue.source_rule_id ?? "-"}</Descriptions.Item>
       <Descriptions.Item label="Template Rule ID">{issue.source_template_rule_id ?? "-"}</Descriptions.Item>
+      <Descriptions.Item label="Checkpoint ID">{issue.checkpoint_id ?? "-"}</Descriptions.Item>
+      <Descriptions.Item label="Match Result ID">{issue.match_result_id ?? "-"}</Descriptions.Item>
+      <Descriptions.Item label="Confidence">
+        {issue.confidence === null || issue.confidence === undefined ? "-" : issue.confidence.toFixed(2)}
+      </Descriptions.Item>
     </Descriptions>
     <TextBlock title="Issue Title" value={issue.issue_title} />
     <TextBlock title="Description" value={issue.issue_description} />
     <TextBlock title="Original Text" value={issue.plan_original_text} />
     <TextBlock title="Suggestion" value={issue.suggestion} />
+    <TextBlock title="Confidence Reason" value={issue.confidence_reason} />
     <TextBlock title="AI Reason" value={issue.ai_reason} />
     <TextBlock title="Expert Comment" value={issue.expert_comment} />
   </Space>
@@ -389,6 +475,18 @@ const riskLevelOptions = [
 const RiskTag = ({ risk }: { risk: string | null }) => {
   const color = risk === "critical" ? "red" : risk === "major" ? "orange" : risk === "minor" ? "blue" : "default";
   return <Tag color={color}>{risk || "-"}</Tag>;
+};
+
+const SourceTag = ({ source }: { source: string | null }) => {
+  const color =
+    source === "checkpoint"
+      ? "purple"
+      : source === "standard_rule"
+        ? "geekblue"
+        : source === "template_rule"
+          ? "cyan"
+          : "default";
+  return <Tag color={color}>{source || "-"}</Tag>;
 };
 
 const StatusTag = ({ status }: { status: string }) => {

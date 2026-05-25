@@ -68,6 +68,10 @@ export type ReviewIssue = {
   source_rule_id: number | null;
   source_template_rule_id: number | null;
   standard_clause_id: number | null;
+  checkpoint_id: number | null;
+  match_result_id: number | null;
+  confidence: number | null;
+  confidence_reason: string | null;
   ai_reason: string | null;
   suggestion: string | null;
   status: string;
@@ -76,6 +80,65 @@ export type ReviewIssue = {
   confirmed_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type ChapterReviewProfile = {
+  id: number;
+  task_id: number;
+  document_id: number;
+  section_id: number;
+  chapter_title: string | null;
+  chapter_path: string | null;
+  chapter_type: string | null;
+  main_domain: string | null;
+  subdomains: string[];
+  construction_objects: Array<Record<string, unknown>>;
+  materials: string[];
+  mentioned_parameters: string[];
+  mentioned_methods: string[];
+  mentioned_risks: string[];
+  mentioned_standards: string[];
+  expected_missing_objects: string[];
+  summary: string | null;
+  confidence: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BuildChapterProfilesResult = {
+  task_id: number;
+  created_count: number;
+  updated_count: number;
+  failed: Array<Record<string, unknown>>;
+  items: ChapterReviewProfile[];
+};
+
+export type CheckpointMatchResult = {
+  id: number;
+  task_id: number;
+  section_id: number;
+  checkpoint_id: number;
+  match_score: number;
+  match_reason: string | null;
+  match_dimensions: Record<string, unknown>;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MatchCheckpointsResult = {
+  task_id: number;
+  selected_count: number;
+  candidate_count: number;
+  items: CheckpointMatchResult[];
+};
+
+export type RunCheckpointReviewResult = {
+  task_id: number;
+  executed_count: number;
+  issue_count: number;
+  skipped_count: number;
+  failed: Array<Record<string, unknown>>;
 };
 
 export type ReviewIssueListQuery = {
@@ -132,5 +195,20 @@ export const listReviewTaskIssues = async (taskId: number, query: ReviewIssueLis
 
 export const confirmReviewIssue = async (issueId: number, payload: ReviewIssueConfirmRequest) => {
   const { data } = await apiClient.post<ReviewIssue>(`/review-issues/${issueId}/confirm`, payload);
+  return data;
+};
+
+export const buildChapterProfiles = async (taskId: number) => {
+  const { data } = await apiClient.post<BuildChapterProfilesResult>(`/review-tasks/${taskId}/build-chapter-profiles`);
+  return data;
+};
+
+export const matchReviewCheckpoints = async (taskId: number) => {
+  const { data } = await apiClient.post<MatchCheckpointsResult>(`/review-tasks/${taskId}/match-checkpoints`);
+  return data;
+};
+
+export const runCheckpointReview = async (taskId: number) => {
+  const { data } = await apiClient.post<RunCheckpointReviewResult>(`/review-tasks/${taskId}/run-checkpoint-review`);
   return data;
 };

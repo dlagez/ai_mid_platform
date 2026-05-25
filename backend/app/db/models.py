@@ -481,6 +481,108 @@ class ReviewRule(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class ConstructionObject(Base):
+    __tablename__ = "construction_object"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    object_code: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    object_name: Mapped[str] = mapped_column(String(255), index=True)
+    object_type: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    parent_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("construction_object.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    aliases: Mapped[list] = mapped_column(JSONB, default=list)
+    related_parameters: Mapped[list] = mapped_column(JSONB, default=list)
+    related_scenarios: Mapped[list] = mapped_column(JSONB, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    parent: Mapped["ConstructionObject | None"] = relationship("ConstructionObject", remote_side=[id])
+
+
+class ChapterReviewProfile(Base):
+    __tablename__ = "chapter_review_profile"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    task_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("review_task.id", ondelete="CASCADE"), index=True)
+    document_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("plan_document.id", ondelete="CASCADE"), index=True)
+    section_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("plan_section.id", ondelete="CASCADE"), index=True)
+    chapter_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    chapter_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    chapter_type: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    main_domain: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    subdomains: Mapped[list] = mapped_column(JSONB, default=list)
+    construction_objects: Mapped[list] = mapped_column(JSONB, default=list)
+    materials: Mapped[list] = mapped_column(JSONB, default=list)
+    mentioned_parameters: Mapped[list] = mapped_column(JSONB, default=list)
+    mentioned_methods: Mapped[list] = mapped_column(JSONB, default=list)
+    mentioned_risks: Mapped[list] = mapped_column(JSONB, default=list)
+    mentioned_standards: Mapped[list] = mapped_column(JSONB, default=list)
+    expected_missing_objects: Mapped[list] = mapped_column(JSONB, default=list)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    task: Mapped["ReviewTask"] = relationship("ReviewTask", foreign_keys=[task_id])
+    document: Mapped[PlanDocument] = relationship("PlanDocument", foreign_keys=[document_id])
+    section: Mapped[PlanSection] = relationship("PlanSection", foreign_keys=[section_id])
+
+
+class ReviewCheckpoint(Base):
+    __tablename__ = "review_checkpoint"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    checkpoint_code: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    checkpoint_name: Mapped[str] = mapped_column(String(255), index=True)
+    checkpoint_type: Mapped[str] = mapped_column(String(100), index=True)
+    domain: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    subdomain: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    work_type: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    standard_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("standard_document.id"), nullable=True, index=True)
+    clause_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("standard_clause.id"), nullable=True, index=True)
+    clause_no: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    clause_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    chapter_types: Mapped[list] = mapped_column(JSONB, default=list)
+    target_objects: Mapped[list] = mapped_column(JSONB, default=list)
+    target_parameters: Mapped[list] = mapped_column(JSONB, default=list)
+    keywords: Mapped[list] = mapped_column(JSONB, default=list)
+    check_goal: Mapped[str | None] = mapped_column(Text, nullable=True)
+    check_method: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    expected_items: Mapped[list] = mapped_column(JSONB, default=list)
+    forbidden_items: Mapped[list] = mapped_column(JSONB, default=list)
+    parameters: Mapped[dict] = mapped_column(JSONB, default=dict)
+    applicable_condition: Mapped[dict] = mapped_column(JSONB, default=dict)
+    risk_level: Mapped[str] = mapped_column(String(50), default="major", index=True)
+    is_mandatory: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    priority: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    status: Mapped[str] = mapped_column(String(50), default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class CheckpointMatchResult(Base):
+    __tablename__ = "checkpoint_match_result"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    task_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("review_task.id", ondelete="CASCADE"), index=True)
+    section_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("plan_section.id", ondelete="CASCADE"), index=True)
+    checkpoint_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("review_checkpoint.id", ondelete="CASCADE"), index=True)
+    match_score: Mapped[float] = mapped_column(Numeric(5, 2), default=0)
+    match_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    match_dimensions: Mapped[dict] = mapped_column(JSONB, default=dict)
+    status: Mapped[str] = mapped_column(String(50), default="candidate", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    task: Mapped["ReviewTask"] = relationship("ReviewTask", foreign_keys=[task_id])
+    section: Mapped[PlanSection] = relationship("PlanSection", foreign_keys=[section_id])
+    checkpoint: Mapped[ReviewCheckpoint] = relationship("ReviewCheckpoint", foreign_keys=[checkpoint_id])
+
+
 class ReviewTask(Base):
     __tablename__ = "review_task"
 
@@ -569,6 +671,20 @@ class ReviewIssue(Base):
         nullable=True,
         index=True,
     )
+    checkpoint_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("review_checkpoint.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    match_result_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("checkpoint_match_result.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    confidence: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    confidence_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     suggestion: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="pending_confirm", index=True)
@@ -580,6 +696,41 @@ class ReviewIssue(Base):
 
     task: Mapped[ReviewTask] = relationship("ReviewTask", back_populates="issues", foreign_keys=[task_id])
     section: Mapped[PlanSection | None] = relationship("PlanSection", foreign_keys=[plan_section_id])
+    checkpoint: Mapped[ReviewCheckpoint | None] = relationship("ReviewCheckpoint", foreign_keys=[checkpoint_id])
+    match_result: Mapped[CheckpointMatchResult | None] = relationship("CheckpointMatchResult", foreign_keys=[match_result_id])
+    evidence: Mapped[list["ReviewIssueEvidence"]] = relationship(
+        "ReviewIssueEvidence",
+        back_populates="issue",
+        cascade="all, delete-orphan",
+        foreign_keys="ReviewIssueEvidence.issue_id",
+    )
+
+
+class ReviewIssueEvidence(Base):
+    __tablename__ = "review_issue_evidence"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    issue_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("review_issue.id", ondelete="CASCADE"), index=True)
+    evidence_type: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    standard_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("standard_document.id"), nullable=True, index=True)
+    clause_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("standard_clause.id"), nullable=True, index=True)
+    clause_no: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    clause_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    plan_section_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("plan_section.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    plan_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    checkpoint_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("review_checkpoint.id"), nullable=True, index=True)
+    match_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+    issue: Mapped[ReviewIssue] = relationship("ReviewIssue", back_populates="evidence", foreign_keys=[issue_id])
+    section: Mapped[PlanSection | None] = relationship("PlanSection", foreign_keys=[plan_section_id])
+    checkpoint: Mapped[ReviewCheckpoint | None] = relationship("ReviewCheckpoint", foreign_keys=[checkpoint_id])
 
 
 class RuleExecutionLog(Base):

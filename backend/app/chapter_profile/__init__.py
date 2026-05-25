@@ -1,0 +1,2 @@
+"""Chapter profile generation."""
+
