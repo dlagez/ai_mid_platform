@@ -99,18 +99,6 @@ export type StandardClauseListResult = {
   page_size: number;
 };
 
-export type GenerateRuleCandidatesRequest = {
-  clause_ids: number[];
-  use_llm: boolean;
-};
-
-export type GenerateRuleCandidatesResult = {
-  created_count: number;
-  candidate_ids: number[];
-  failed: Array<Record<string, unknown>>;
-  skipped: Array<Record<string, unknown>>;
-};
-
 export const listStandards = async () => {
   const { data } = await apiClient.get<StandardDocumentListResult>("/standards");
   return data;
@@ -165,13 +153,5 @@ export const updateStandardClause = async (clauseId: number, payload: StandardCl
 
 export const deleteStandardClause = async (clauseId: number) => {
   const { data } = await apiClient.delete<StandardClause>(`/standard-clauses/${clauseId}`);
-  return data;
-};
-
-export const generateRuleCandidates = async (standardId: number, payload: GenerateRuleCandidatesRequest) => {
-  const { data } = await apiClient.post<GenerateRuleCandidatesResult>(
-    `/standards/${standardId}/generate-rule-candidates`,
-    payload,
-  );
   return data;
 };

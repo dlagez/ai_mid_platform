@@ -33,7 +33,6 @@ import type { CurrentUser } from "../types/platform";
 import { generateReviewCheckpoints } from "../services/reviewCheckpointService";
 import {
   deleteStandardClause,
-  generateRuleCandidates,
   getStandard,
   listStandardClauses,
   updateStandardClause,
@@ -63,7 +62,7 @@ export const StandardClausesPage = () => {
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   const [editing, setEditing] = useState<StandardClause | null>(null);
   const [useLlm, setUseLlm] = useState(true);
-  const [loading, setLoading] = useState({ list: false, save: false, delete: false, generate: false, checkpoint: false });
+  const [loading, setLoading] = useState({ list: false, save: false, delete: false, checkpoint: false });
   const [filterForm] = Form.useForm<ClauseFilterValues>();
   const [editForm] = Form.useForm<StandardClausePayload>();
 
@@ -151,27 +150,6 @@ export const StandardClausesPage = () => {
     }
   };
 
-  const generateCandidates = async () => {
-    const ids = selectedRowKeys.map((key) => Number(key));
-    if (!ids.length) {
-      message.warning("Select clauses first.");
-      return;
-    }
-    setLoading((current) => ({ ...current, generate: true }));
-    try {
-      const result = await generateRuleCandidates(standardId, { clause_ids: ids, use_llm: useLlm });
-      message.success(`Generated ${result.created_count} candidates.`);
-      if (result.failed.length) {
-        message.warning(`${result.failed.length} clauses failed. Check backend logs for details.`);
-      }
-      setSelectedRowKeys([]);
-    } catch {
-      message.error("Failed to generate rule candidates.");
-    } finally {
-      setLoading((current) => ({ ...current, generate: false }));
-    }
-  };
-
   const generateCheckpoints = async () => {
     const ids = selectedRowKeys.map((key) => Number(key));
     if (!ids.length) {
@@ -240,16 +218,6 @@ export const StandardClausesPage = () => {
             <Tooltip title={getGenerateTooltip(isAdmin, selectedRowKeys.length)}>
               <Button
                 type="primary"
-                icon={<RobotOutlined />}
-                loading={loading.generate}
-                disabled={!isAdmin || !selectedRowKeys.length}
-                onClick={() => void generateCandidates()}
-              >
-                AI生成候选规则
-              </Button>
-            </Tooltip>
-            <Tooltip title={getGenerateTooltip(isAdmin, selectedRowKeys.length)}>
-              <Button
                 icon={<RobotOutlined />}
                 loading={loading.checkpoint}
                 disabled={!isAdmin || !selectedRowKeys.length}
@@ -385,7 +353,7 @@ const summarize = (value: string) => {
 
 const getGenerateTooltip = (isAdmin: boolean, selectedCount: number) => {
   if (!isAdmin) {
-    return "只有 admin 可以生成候选规则";
+    return "只有 admin 可以生成审查点";
   }
   if (!selectedCount) {
     return "请先勾选需要生成规则的条文";

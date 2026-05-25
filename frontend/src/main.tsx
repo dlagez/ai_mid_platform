@@ -19,7 +19,6 @@ import { App as AntdApp, ConfigProvider } from "antd";
 import {
   ApiOutlined,
   AppstoreOutlined,
-  AuditOutlined,
   BookOutlined,
   FileDoneOutlined,
   DashboardOutlined,
@@ -48,7 +47,6 @@ import { ReviewTemplateEditPage } from "./pages/ReviewTemplateEdit";
 import { TemplateSectionRulesPage } from "./pages/TemplateSectionRules";
 import { StandardsListPage } from "./pages/StandardsList";
 import { StandardClausesPage } from "./pages/StandardClauses";
-import { RuleCandidatesPage } from "./pages/RuleCandidates";
 import { ReviewCheckpointsPage } from "./pages/ReviewCheckpoints";
 import { ReviewTasksPage } from "./pages/ReviewTasks";
 import { ReviewTaskIssuesPage } from "./pages/ReviewTaskIssues";
@@ -97,11 +95,6 @@ const resources = [
     name: "standards",
     list: "/standards",
     meta: { label: "Standards Library", icon: <BookOutlined />, parent: "construction-review" },
-  },
-  {
-    name: "rule-candidates",
-    list: "/rule-candidates",
-    meta: { label: "Rule Candidates", icon: <AuditOutlined />, parent: "construction-review" },
   },
   {
     name: "review-checkpoints",
@@ -178,7 +171,6 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                 <Route path="/review-templates/:id/section-rules" element={<TemplateSectionRulesPage />} />
                 <Route path="/standards" element={<StandardsListPage />} />
                 <Route path="/standards/:id/clauses" element={<StandardClausesPage />} />
-                <Route path="/rule-candidates" element={<RuleCandidatesPage />} />
                 <Route path="/review-checkpoints" element={<ReviewCheckpointsPage />} />
                 <Route path="/review-tasks" element={<ReviewTasksPage />} />
                 <Route path="/review-tasks/:id" element={<ReviewTaskIssuesPage />} />

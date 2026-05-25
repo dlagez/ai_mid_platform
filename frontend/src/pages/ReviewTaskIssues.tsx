@@ -35,7 +35,6 @@ import {
   listReviewTaskIssues,
   matchReviewCheckpoints,
   runCheckpointReview,
-  startReviewTask,
   type ReviewIssue,
   type ReviewIssueConfirmRequest,
   type ReviewIssueListQuery,
@@ -67,7 +66,6 @@ export const ReviewTaskIssuesPage = () => {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [loading, setLoading] = useState({
     list: false,
-    start: false,
     confirm: false,
     profiles: false,
     match: false,
@@ -97,22 +95,6 @@ export const ReviewTaskIssuesPage = () => {
   useEffect(() => {
     void load();
   }, [taskId]);
-
-  const startTask = async () => {
-    if (!task) {
-      return;
-    }
-    setLoading((current) => ({ ...current, start: true }));
-    try {
-      const result = await startReviewTask(task.id);
-      message.success(`Review finished with status: ${result.status}.`);
-      await load();
-    } catch {
-      message.error("Failed to start review task.");
-    } finally {
-      setLoading((current) => ({ ...current, start: false }));
-    }
-  };
 
   const buildProfiles = async () => {
     setLoading((current) => ({ ...current, profiles: true }));
@@ -216,15 +198,6 @@ export const ReviewTaskIssuesPage = () => {
           <Button icon={<ReloadOutlined />} loading={loading.list} onClick={() => void load()}>
             Reload
           </Button>
-          {task?.status === "created" || task?.status === "failed" ? (
-            <Button type="primary" icon={<PlayCircleOutlined />} loading={loading.start} onClick={() => void startTask()}>
-              Start
-            </Button>
-          ) : task?.status !== "running" ? (
-            <Button type="primary" icon={<PlayCircleOutlined />} loading={loading.start} onClick={() => void startTask()}>
-              Rerun
-            </Button>
-          ) : null}
         </Space>
       </div>
 
@@ -247,11 +220,8 @@ export const ReviewTaskIssuesPage = () => {
         </Card>
       ) : null}
 
-      <Card title="Review Methods">
+      <Card title="Checkpoint Review">
         <Space wrap size={12}>
-          <Button type="primary" icon={<PlayCircleOutlined />} loading={loading.start} onClick={() => void startTask()}>
-            规则引擎审核
-          </Button>
           <Button icon={<ProfileOutlined />} loading={loading.profiles} onClick={() => void buildProfiles()}>
             生成章节画像
           </Button>
@@ -419,8 +389,6 @@ const IssueDetail = ({ issue }: { issue: ReviewIssue }) => (
       <Descriptions.Item label="Source">{issue.source_type ?? "-"}</Descriptions.Item>
       <Descriptions.Item label="Plan Section">{issue.plan_section_title ?? "-"}</Descriptions.Item>
       <Descriptions.Item label="Standard Clause ID">{issue.standard_clause_id ?? "-"}</Descriptions.Item>
-      <Descriptions.Item label="Rule ID">{issue.source_rule_id ?? "-"}</Descriptions.Item>
-      <Descriptions.Item label="Template Rule ID">{issue.source_template_rule_id ?? "-"}</Descriptions.Item>
       <Descriptions.Item label="Checkpoint ID">{issue.checkpoint_id ?? "-"}</Descriptions.Item>
       <Descriptions.Item label="Match Result ID">{issue.match_result_id ?? "-"}</Descriptions.Item>
       <Descriptions.Item label="Confidence">

@@ -2,13 +2,12 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, Card, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, message } from "antd";
 import type { TablePaginationConfig } from "antd";
-import { EyeOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
+import { EyeOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import { listDocuments, type DocumentRecord } from "../services/documentService";
 import { listReviewTemplates, type ReviewTemplate } from "../services/reviewTemplateService";
 import {
   createReviewTask,
   listReviewTasks,
-  startReviewTask,
   type ReviewTask,
   type ReviewTaskCreate,
   type ReviewTaskListQuery,
@@ -27,7 +26,7 @@ export const ReviewTasksPage = () => {
   const [total, setTotal] = useState(0);
   const [query, setQuery] = useState<ReviewTaskListQuery>({ page: 1, page_size: 20 });
   const [createOpen, setCreateOpen] = useState(false);
-  const [loading, setLoading] = useState({ list: false, create: false, start: false, options: false });
+  const [loading, setLoading] = useState({ list: false, create: false, options: false });
   const [filterForm] = Form.useForm<TaskFilterValues>();
   const [createForm] = Form.useForm<ReviewTaskCreate>();
 
@@ -112,20 +111,6 @@ export const ReviewTasksPage = () => {
     }
   };
 
-  const startTask = async (task: ReviewTask) => {
-    setLoading((current) => ({ ...current, start: true }));
-    try {
-      const result = await startReviewTask(task.id);
-      message.success(`Review finished with status: ${result.status}.`);
-      await load();
-      navigate(`/review-tasks/${task.id}`);
-    } catch {
-      message.error("Failed to start review task.");
-    } finally {
-      setLoading((current) => ({ ...current, start: false }));
-    }
-  };
-
   const applyFilter = async () => {
     const values = filterForm.getFieldsValue();
     await load({ ...values, page: 1, page_size: query.page_size ?? 20 });
@@ -203,23 +188,12 @@ export const ReviewTasksPage = () => {
             },
             {
               title: "Actions",
-              width: 170,
+              width: 100,
               render: (_, record) => (
                 <Space size={6} wrap>
                   <Button size="small" icon={<EyeOutlined />} onClick={() => navigate(`/review-tasks/${record.id}`)}>
                     Issues
                   </Button>
-                  {record.status !== "running" ? (
-                    <Button
-                      size="small"
-                      type="primary"
-                      icon={<PlayCircleOutlined />}
-                      loading={loading.start}
-                      onClick={() => void startTask(record)}
-                    >
-                      {record.version > 1 || record.status !== "created" ? "Rerun" : "Start"}
-                    </Button>
-                  ) : null}
                 </Space>
               ),
             },

@@ -43,16 +43,6 @@ export type ReviewTaskListResult = {
   page_size: number;
 };
 
-export type ReviewTaskStartResult = {
-  id: number;
-  status: string;
-  version: number | null;
-  total_issue_count: number | null;
-  critical_issue_count: number | null;
-  major_issue_count: number | null;
-  minor_issue_count: number | null;
-};
-
 export type ReviewIssue = {
   id: number;
   task_id: number;
@@ -178,11 +168,6 @@ export const createReviewTask = async (payload: ReviewTaskCreate) => {
 
 export const getReviewTask = async (id: number) => {
   const { data } = await apiClient.get<ReviewTask>(`/review-tasks/${id}`);
-  return data;
-};
-
-export const startReviewTask = async (id: number) => {
-  const { data } = await apiClient.post<ReviewTaskStartResult>(`/review-tasks/${id}/start`);
   return data;
 };
 
