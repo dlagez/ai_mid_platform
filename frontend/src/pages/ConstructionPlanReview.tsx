@@ -62,7 +62,7 @@ const DocumentUploadReviewPage = ({
   const [parsed, setParsed] = useState<DocumentParseResult | null>(null);
   const [selectedSection, setSelectedSection] = useState<PlanSection | null>(null);
   const [profileJobs, setProfileJobs] = useState<Record<number, ChapterProfileGenerationJob>>({});
-  const [loading, setLoading] = useState({ files: false, upload: false, parse: false, delete: false, profile: false });
+  const [loading, setLoading] = useState({ files: false, upload: false, delete: false, profile: false });
   const [selectedFileId, setSelectedFileId] = useState<number | null>(null);
   const [parsingFileId, setParsingFileId] = useState<number | null>(null);
   const [pdfPreview, setPdfPreview] = useState({ open: false, title: "", url: "" });
@@ -140,29 +140,44 @@ const DocumentUploadReviewPage = ({
   };
 
   const handleView = async (id: number) => {
-    setLoading((s) => ({ ...s, parse: true }));
     try {
       const result = await getDocumentSections(id);
       setParsed(result);
       selectFirstSection(result);
     } catch {
       message.error("Failed to load sections.");
-    } finally {
-      setLoading((s) => ({ ...s, parse: false }));
     }
   };
 
-  const handleParse = async (id: number) => {
-    setLoading((s) => ({ ...s, parse: true }));
+  const handleParse = async (record: DocumentRecord) => {
+    if (record.parse_status === "parsed") {
+      Modal.confirm({
+        title: "Re-parse this document?",
+        content: "Re-parsing will delete existing parsed sections and rebuild them.",
+        okText: "Re-parse",
+        okType: "danger",
+        cancelText: "Cancel",
+        onOk: async () => {
+          await executeParse(record);
+        },
+      });
+      return;
+    }
+    await executeParse(record);
+  };
+
+  const executeParse = async (record: DocumentRecord) => {
+    setParsingFileId(record.id);
     try {
-      const result = await parseDocument(id);
+      const result = await parseDocument(record.id);
       setParsed(result);
       selectFirstSection(result);
+      setSelectedFileId(record.id);
       await refreshFiles();
     } catch {
       message.error("Parse failed.");
     } finally {
-      setLoading((s) => ({ ...s, parse: false }));
+      setParsingFileId(null);
     }
   };
 
@@ -311,12 +326,24 @@ const DocumentUploadReviewPage = ({
                     <Space size={6} wrap onClick={(e) => e.stopPropagation()}>
                       <Button
                         size="small"
-                        icon={<ReloadOutlined />}
+                        icon={
+                          record.parse_status === "parsing" ? (
+                            <SyncOutlined spin />
+                          ) : (
+                            <ReloadOutlined />
+                          )
+                        }
                         loading={parsingFileId === record.id}
                         disabled={record.parse_status === "parsing"}
-                        onClick={() => void handleParse(record.id)}
+                        onClick={() => void handleParse(record)}
                       >
-                        Parse
+                        {record.parse_status === "parsing"
+                          ? "Parsing..."
+                          : record.parse_status === "parsed"
+                            ? "Re-parse"
+                            : record.parse_status === "failed"
+                              ? "Retry"
+                              : "Parse"}
                       </Button>
                       {enableChapterProfiles ? (
                         <>
