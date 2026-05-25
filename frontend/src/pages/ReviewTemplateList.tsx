@@ -5,7 +5,6 @@ import { Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag
 import {
   CheckCircleOutlined,
   DeleteOutlined,
-  EditOutlined,
   ImportOutlined,
   ReloadOutlined,
   StopOutlined,
@@ -29,6 +28,7 @@ export const ReviewTemplateListPage = () => {
   const [templates, setTemplates] = useState<ReviewTemplate[]>([]);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [importOpen, setImportOpen] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
   const [loading, setLoading] = useState({ list: false, import: false, status: false, delete: false, documents: false });
   const [form] = Form.useForm<ImportTemplateRequest>();
 
@@ -144,6 +144,13 @@ export const ReviewTemplateListPage = () => {
           rowKey="id"
           loading={loading.list}
           dataSource={templates}
+          onRow={(record) => ({
+            onClick: () => {
+              setSelectedTemplateId(record.id);
+              navigate(`/review-templates/${record.id}`);
+            },
+            className: `document-row${selectedTemplateId === record.id ? " document-row-selected" : ""}`,
+          })}
           pagination={{ pageSize: 10 }}
           columns={[
             { title: "Name", dataIndex: "name", ellipsis: true },
@@ -164,15 +171,9 @@ export const ReviewTemplateListPage = () => {
             },
             {
               title: "Actions",
-              width: 300,
+              width: 240,
               render: (_, record) => (
-                <Space size={6} wrap>
-                  <Button size="small" onClick={() => navigate(`/review-templates/${record.id}`)}>
-                    View
-                  </Button>
-                  <Button size="small" icon={<EditOutlined />} onClick={() => navigate(`/review-templates/${record.id}`)}>
-                    Edit
-                  </Button>
+                <Space size={6} wrap onClick={(e) => e.stopPropagation()}>
                   <Button size="small" onClick={() => navigate(`/review-templates/${record.id}/section-rules`)}>
                     Section Rules
                   </Button>

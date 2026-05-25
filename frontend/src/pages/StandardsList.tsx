@@ -40,6 +40,7 @@ export const StandardsListPage = () => {
   const [parseJobs, setParseJobs] = useState<PPOcrPdfJob[]>([]);
   const [editing, setEditing] = useState<StandardDocument | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [selectedStandardId, setSelectedStandardId] = useState<number | null>(null);
   const [loading, setLoading] = useState({
     list: false,
     save: false,
@@ -195,6 +196,13 @@ export const StandardsListPage = () => {
           rowKey="id"
           loading={loading.list}
           dataSource={standards}
+          onRow={(record) => ({
+            onClick: () => {
+              setSelectedStandardId(record.id);
+              navigate(`/standards/${record.id}/clauses`);
+            },
+            className: `document-row${selectedStandardId === record.id ? " document-row-selected" : ""}`,
+          })}
           pagination={{ pageSize: 10 }}
           columns={[
             { title: "Code", dataIndex: "standard_code", width: 160 },
@@ -214,54 +222,51 @@ export const StandardsListPage = () => {
               width: 180,
               render: (value: string) => formatDateTime(value),
             },
-            {
-              title: "Actions",
-              width: 330,
-              render: (_, record) => (
-                <Space size={6} wrap>
-                  <Button size="small" onClick={() => navigate(`/standards/${record.id}/clauses`)}>
-                    Clauses
-                  </Button>
-                  {isAdmin ? (
-                    <>
-                      <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
-                        Edit
-                      </Button>
-                      {record.status === "active" ? (
-                        <Button
-                          size="small"
-                          icon={<StopOutlined />}
-                          loading={loading.status}
-                          onClick={() => void changeStatus(record, "disabled")}
+            ...(isAdmin
+              ? [
+                  {
+                    title: "Actions",
+                    width: 260,
+                    render: (_: unknown, record: StandardDocument) => (
+                      <Space size={6} wrap onClick={(e) => e.stopPropagation()}>
+                        <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
+                          Edit
+                        </Button>
+                        {record.status === "active" ? (
+                          <Button
+                            size="small"
+                            icon={<StopOutlined />}
+                            loading={loading.status}
+                            onClick={() => void changeStatus(record, "disabled")}
+                          >
+                            Disable
+                          </Button>
+                        ) : (
+                          <Button
+                            size="small"
+                            icon={<CheckCircleOutlined />}
+                            loading={loading.status}
+                            onClick={() => void changeStatus(record, "active")}
+                          >
+                            Activate
+                          </Button>
+                        )}
+                        <Popconfirm
+                          title="Delete this standard?"
+                          description="The standard will be archived and hidden from the list."
+                          okText="Delete"
+                          okButtonProps={{ danger: true }}
+                          onConfirm={() => void deleteStandard(record)}
                         >
-                          Disable
-                        </Button>
-                      ) : (
-                        <Button
-                          size="small"
-                          icon={<CheckCircleOutlined />}
-                          loading={loading.status}
-                          onClick={() => void changeStatus(record, "active")}
-                        >
-                          Activate
-                        </Button>
-                      )}
-                      <Popconfirm
-                        title="Delete this standard?"
-                        description="The standard will be archived and hidden from the list."
-                        okText="Delete"
-                        okButtonProps={{ danger: true }}
-                        onConfirm={() => void deleteStandard(record)}
-                      >
-                        <Button size="small" danger icon={<DeleteOutlined />} loading={loading.delete}>
-                          Delete
-                        </Button>
-                      </Popconfirm>
-                    </>
-                  ) : null}
-                </Space>
-              ),
-            },
+                          <Button size="small" danger icon={<DeleteOutlined />} loading={loading.delete}>
+                            Delete
+                          </Button>
+                        </Popconfirm>
+                      </Space>
+                    ),
+                  } as const,
+                ]
+              : []),
           ]}
         />
       </Card>

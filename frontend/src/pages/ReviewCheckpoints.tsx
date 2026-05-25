@@ -20,8 +20,6 @@ import {
 import type { TablePaginationConfig } from "antd";
 import {
   DeleteOutlined,
-  EditOutlined,
-  EyeOutlined,
   PlusOutlined,
   ReloadOutlined,
   SaveOutlined,
@@ -64,6 +62,7 @@ export const ReviewCheckpointsPage = () => {
   const [query, setQuery] = useState<ReviewCheckpointQuery>({ page: 1, page_size: 20 });
   const [editing, setEditing] = useState<ReviewCheckpoint | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [selectedCheckpointId, setSelectedCheckpointId] = useState<number | null>(null);
   const [loading, setLoading] = useState({ list: false, save: false, create: false, delete: false, jobs: false });
   const [filterForm] = Form.useForm<CheckpointFilterValues>();
   const [editForm] = Form.useForm<CheckpointFormValues>();
@@ -268,6 +267,13 @@ export const ReviewCheckpointsPage = () => {
           rowKey="id"
           loading={loading.list}
           dataSource={items}
+          onRow={(record) => ({
+            onClick: () => {
+              setSelectedCheckpointId(record.id);
+              openEdit(record);
+            },
+            className: `document-row${selectedCheckpointId === record.id ? " document-row-selected" : ""}`,
+          })}
           pagination={{
             current: query.page,
             pageSize: query.page_size,
@@ -300,29 +306,28 @@ export const ReviewCheckpointsPage = () => {
               width: 120,
               render: (value: string) => <StatusTag status={value} />,
             },
-            {
-              title: "Actions",
-              width: 160,
-              render: (_, record) => (
-                <Space size={6} wrap>
-                  <Button size="small" icon={isAdmin ? <EditOutlined /> : <EyeOutlined />} onClick={() => openEdit(record)}>
-                    {isAdmin ? "Edit" : "Detail"}
-                  </Button>
-                  {isAdmin ? (
-                    <Popconfirm
-                      title="Archive this checkpoint?"
-                      okText="Archive"
-                      okButtonProps={{ danger: true }}
-                      onConfirm={() => void archive(record)}
-                    >
-                      <Button size="small" danger icon={<DeleteOutlined />} loading={loading.delete}>
-                        Archive
-                      </Button>
-                    </Popconfirm>
-                  ) : null}
-                </Space>
-              ),
-            },
+            ...(isAdmin
+              ? [
+                  {
+                    title: "Actions",
+                    width: 120,
+                    render: (_: unknown, record: ReviewCheckpoint) => (
+                      <Space size={6} wrap onClick={(e) => e.stopPropagation()}>
+                        <Popconfirm
+                          title="Archive this checkpoint?"
+                          okText="Archive"
+                          okButtonProps={{ danger: true }}
+                          onConfirm={() => void archive(record)}
+                        >
+                          <Button size="small" danger icon={<DeleteOutlined />} loading={loading.delete}>
+                            Archive
+                          </Button>
+                        </Popconfirm>
+                      </Space>
+                    ),
+                  } as const,
+                ]
+              : []),
           ]}
         />
       </Card>
