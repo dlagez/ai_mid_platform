@@ -22,7 +22,6 @@ import type { DataNode } from "antd/es/tree";
 import {
   CloudUploadOutlined,
   DeleteOutlined,
-  FileTextOutlined,
   ProfileOutlined,
   ReloadOutlined,
   SyncOutlined,
@@ -194,6 +193,19 @@ const DocumentUploadReviewPage = ({
     }
   };
 
+  const handleRowClick = async (record: DocumentRecord) => {
+    setSelectedFileId(record.id);
+    if (record.parse_status === "uploaded" || record.parse_status === "parsing") {
+      message.info("This document hasn't been parsed yet. Click 'Parse' to start.");
+      return;
+    }
+    if (record.parse_status === "failed") {
+      message.warning("Parsing failed for this document. Click 'Retry' to try again.");
+      return;
+    }
+    await handleView(record.id);
+  };
+
   const handleCreateProfileJob = async (record: DocumentRecord) => {
     if (record.parse_status !== "parsed") {
       message.warning("Parse the document before generating chapter profiles.");
@@ -252,6 +264,10 @@ const DocumentUploadReviewPage = ({
               size="small"
               style={{ marginTop: 12 }}
               dataSource={files}
+              onRow={(record) => ({
+                onClick: () => void handleRowClick(record),
+                className: `document-row${selectedFileId === record.id ? " document-row-selected" : ""}`,
+              })}
               pagination={{ pageSize: 8 }}
               columns={[
                 {
@@ -260,7 +276,10 @@ const DocumentUploadReviewPage = ({
                   ellipsis: true,
                   render: (value: string, record) =>
                     isPdf(value) ? (
-                      <Button type="link" size="small" className="table-link-button" onClick={() => void handlePreviewPdf(record)}>
+                      <Button type="link" size="small" className="table-link-button" onClick={(e) => {
+                        e.stopPropagation();
+                        void handlePreviewPdf(record);
+                      }}>
                         {value}
                       </Button>
                     ) : (
@@ -287,21 +306,14 @@ const DocumentUploadReviewPage = ({
                 },
                 {
                   title: "",
-                  width: enableChapterProfiles ? 360 : 220,
+                  width: enableChapterProfiles ? 300 : 160,
                   render: (_, record) => (
-                    <Space size={6} wrap>
-                      <Button
-                        size="small"
-                        icon={<FileTextOutlined />}
-                        loading={loading.parse}
-                        onClick={() => void handleView(record.id)}
-                      >
-                        View
-                      </Button>
+                    <Space size={6} wrap onClick={(e) => e.stopPropagation()}>
                       <Button
                         size="small"
                         icon={<ReloadOutlined />}
-                        loading={loading.parse}
+                        loading={parsingFileId === record.id}
+                        disabled={record.parse_status === "parsing"}
                         onClick={() => void handleParse(record.id)}
                       >
                         Parse
