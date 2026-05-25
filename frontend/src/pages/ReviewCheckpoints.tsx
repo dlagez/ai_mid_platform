@@ -196,7 +196,14 @@ export const ReviewCheckpointsPage = () => {
       <div className="page-heading">
         <h1>Review Checkpoints</h1>
         <Space>
-          <Button icon={<ReloadOutlined />} loading={loading.list} onClick={() => void load()}>
+          <Button
+            icon={<ReloadOutlined />}
+            loading={loading.list || loading.jobs}
+            onClick={() => {
+              void load();
+              void loadRecentJobs();
+            }}
+          >
             Refresh
           </Button>
           {isAdmin ? (
