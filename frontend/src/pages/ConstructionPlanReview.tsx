@@ -10,6 +10,7 @@ import {
   Popconfirm,
   Row,
   Space,
+  Spin,
   Table,
   Tag,
   Tree,
@@ -65,6 +66,7 @@ const DocumentUploadReviewPage = ({
   const [loading, setLoading] = useState({ files: false, upload: false, delete: false, profile: false });
   const [selectedFileId, setSelectedFileId] = useState<number | null>(null);
   const [parsingFileId, setParsingFileId] = useState<number | null>(null);
+  const [viewingFileId, setViewingFileId] = useState<number | null>(null);
   const [pdfPreview, setPdfPreview] = useState({ open: false, title: "", url: "" });
   const enableChapterProfiles = documentType === "construction_plan";
 
@@ -140,12 +142,15 @@ const DocumentUploadReviewPage = ({
   };
 
   const handleView = async (id: number) => {
+    setViewingFileId(id);
     try {
       const result = await getDocumentSections(id);
       setParsed(result);
       selectFirstSection(result);
     } catch {
       message.error("Failed to load sections.");
+    } finally {
+      setViewingFileId(null);
     }
   };
 
@@ -189,6 +194,7 @@ const DocumentUploadReviewPage = ({
       if (parsed?.id === record.id) {
         setParsed(null);
         setSelectedSection(null);
+        setSelectedFileId(null);
       }
       await refreshFiles();
       await refreshProfileJobs();
@@ -394,6 +400,7 @@ const DocumentUploadReviewPage = ({
 
         <Col xs={24} xl={14}>
           <Card title={parsed ? `Sections — ${parsed.file_name}` : "Sections"}>
+            <Spin spinning={viewingFileId !== null}>
             {parsed ? (
               <Space direction="vertical" size={8} style={{ width: "100%" }}>
                 <Space>
@@ -441,6 +448,7 @@ const DocumentUploadReviewPage = ({
             ) : (
               <Typography.Text type="secondary">{emptyDescription}</Typography.Text>
             )}
+            </Spin>
           </Card>
         </Col>
       </Row>
