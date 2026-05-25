@@ -38,7 +38,7 @@ export const ReviewTemplateListPage = () => {
       const result = await listReviewTemplates();
       setTemplates(result.items);
     } catch {
-      message.error("Failed to load review templates.");
+      message.error("Failed to load Templates Rules.");
     } finally {
       setLoading((current) => ({ ...current, list: false }));
     }
@@ -126,7 +126,7 @@ export const ReviewTemplateListPage = () => {
   return (
     <div className="page">
       <div className="page-heading">
-        <h1>Review Templates</h1>
+        <h1>Templates Rules</h1>
         <Space>
           <Button icon={<ReloadOutlined />} loading={loading.list} onClick={() => void refresh()}>
             Refresh

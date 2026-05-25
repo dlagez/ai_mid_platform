@@ -91,7 +91,7 @@ const resources = [
   {
     name: "review-templates",
     list: "/review-templates",
-    meta: { label: "Review Templates", icon: <SnippetsOutlined />, parent: "construction-review" },
+    meta: { label: "Templates Rules", icon: <SnippetsOutlined />, parent: "construction-review" },
   },
   {
     name: "standards",
