@@ -28,7 +28,20 @@ class CheckpointMatcherService:
             .all()
         )
         if not profiles:
-            raise PlatformError("No chapter review profiles found. Build profiles before matching checkpoints.", status_code=400)
+            profiles = (
+                db.query(ChapterReviewProfile)
+                .filter(
+                    ChapterReviewProfile.task_id.is_(None),
+                    ChapterReviewProfile.document_id == task.plan_document_id,
+                )
+                .order_by(ChapterReviewProfile.id.asc())
+                .all()
+            )
+        if not profiles:
+            raise PlatformError(
+                "No chapter review profiles found. Generate chapter profiles from Upload Construction Plan before matching checkpoints.",
+                status_code=400,
+            )
 
         checkpoint_query = db.query(ReviewCheckpoint).filter(ReviewCheckpoint.status == "active")
         if task.work_type:

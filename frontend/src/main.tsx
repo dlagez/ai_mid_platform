@@ -41,6 +41,7 @@ import { ModelCallPage } from "./pages/ModelCall";
 import { OpenKBPage } from "./pages/OpenKB";
 import { TaskListPage } from "./pages/TaskList";
 import { ConstructionPlanReviewPage, TemplateUploadPage } from "./pages/ConstructionPlanReview";
+import { ChapterProfileJobDetailPage } from "./pages/ChapterProfileJobDetail";
 import { UtilsPPOcrPage } from "./pages/UtilsPPOcr";
 import { ReviewTemplateListPage } from "./pages/ReviewTemplateList";
 import { ReviewTemplateEditPage } from "./pages/ReviewTemplateEdit";
@@ -100,7 +101,7 @@ const resources = [
   {
     name: "checkpoint-generation",
     list: "/standards/checkpoint-generation",
-    meta: { label: "Checkpoint Generation", icon: <NodeIndexOutlined />, parent: "standards" },
+    meta: { label: "Checkpoint Generation", icon: <NodeIndexOutlined />, parent: "construction-review" },
   },
   {
     name: "review-checkpoints",
@@ -172,6 +173,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                 <Route path="/openkb" element={<OpenKBPage />} />
                 <Route path="/upload-templates" element={<TemplateUploadPage />} />
                 <Route path="/construction-plan" element={<ConstructionPlanReviewPage />} />
+                <Route path="/construction-plan/profile-jobs/:id" element={<ChapterProfileJobDetailPage />} />
                 <Route path="/review-templates" element={<ReviewTemplateListPage />} />
                 <Route path="/review-templates/:id" element={<ReviewTemplateEditPage />} />
                 <Route path="/review-templates/:id/section-rules" element={<TemplateSectionRulesPage />} />

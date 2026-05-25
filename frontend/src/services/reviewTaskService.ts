@@ -74,7 +74,7 @@ export type ReviewIssue = {
 
 export type ChapterReviewProfile = {
   id: number;
-  task_id: number;
+  task_id: number | null;
   document_id: number;
   section_id: number;
   chapter_title: string | null;
@@ -96,7 +96,8 @@ export type ChapterReviewProfile = {
 };
 
 export type BuildChapterProfilesResult = {
-  task_id: number;
+  task_id: number | null;
+  document_id: number;
   created_count: number;
   updated_count: number;
   failed: Array<Record<string, unknown>>;

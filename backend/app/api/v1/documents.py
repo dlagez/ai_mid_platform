@@ -8,6 +8,13 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.chapter_profile.schemas import (
+    ChapterProfileGenerationItemList,
+    ChapterProfileGenerationJobList,
+    ChapterProfileGenerationJobRead,
+    CreateChapterProfileGenerationJobResponse,
+)
+from app.chapter_profile.service import ChapterProfileService, get_chapter_profile_service
 from app.db.models import PlanDocument, PlanSection
 from app.db.session import get_db
 from app.parsers.factory import ParserConfigError, ParserUnsupportedFileError, get_parser, validate_parser_file
@@ -114,6 +121,56 @@ async def list_documents(
     ]
 
 
+@router.get("/chapter-profile-jobs", response_model=ChapterProfileGenerationJobList)
+async def list_chapter_profile_jobs(
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    profile_service: Annotated[ChapterProfileService, Depends(get_chapter_profile_service)],
+    db: Annotated[Session, Depends(get_db)],
+    document_id: Annotated[int | None, Query()] = None,
+    status: Annotated[str | None, Query()] = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+) -> ChapterProfileGenerationJobList:
+    items, total = profile_service.list_generation_jobs(
+        db,
+        document_id=document_id,
+        status=status,
+        page=page,
+        page_size=page_size,
+    )
+    return ChapterProfileGenerationJobList(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.get("/chapter-profile-jobs/{job_id}", response_model=ChapterProfileGenerationJobRead)
+async def get_chapter_profile_job(
+    job_id: int,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    profile_service: Annotated[ChapterProfileService, Depends(get_chapter_profile_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ChapterProfileGenerationJobRead:
+    return profile_service.get_generation_job(db, job_id)
+
+
+@router.get("/chapter-profile-jobs/{job_id}/items", response_model=ChapterProfileGenerationItemList)
+async def list_chapter_profile_job_items(
+    job_id: int,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    profile_service: Annotated[ChapterProfileService, Depends(get_chapter_profile_service)],
+    db: Annotated[Session, Depends(get_db)],
+    status: Annotated[str | None, Query()] = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=500),
+) -> ChapterProfileGenerationItemList:
+    items, total = profile_service.list_generation_items(
+        db,
+        job_id=job_id,
+        status=status,
+        page=page,
+        page_size=page_size,
+    )
+    return ChapterProfileGenerationItemList(items=items, total=total, page=page, page_size=page_size)
+
+
 @router.delete("/{record_id}", response_model=DocumentItem)
 async def delete_document(
     record_id: int,
@@ -127,6 +184,17 @@ async def delete_document(
     item = _to_document_item(record)
     service.delete_file(db, record_id)
     return item
+
+
+@router.post("/{record_id}/chapter-profile-jobs", response_model=CreateChapterProfileGenerationJobResponse)
+async def create_chapter_profile_job(
+    record_id: int,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
+    profile_service: Annotated[ChapterProfileService, Depends(get_chapter_profile_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> CreateChapterProfileGenerationJobResponse:
+    job = profile_service.create_generation_job(db, record_id)
+    return CreateChapterProfileGenerationJobResponse(job=job)
 
 
 @router.post("/{record_id}/parse", response_model=DocumentParseResponse)

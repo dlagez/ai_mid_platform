@@ -27,6 +27,58 @@ export type DocumentParseResult = {
   sections: PlanSection[];
 };
 
+export type ChapterProfileGenerationJob = {
+  id: number;
+  document_id: number;
+  task_id: number | null;
+  status: string;
+  total_sections: number;
+  processed_sections: number;
+  created_count: number;
+  updated_count: number;
+  failed_count: number;
+  rule_only_count: number;
+  celery_task_id: string | null;
+  error_message: string | null;
+  created_by: number | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ChapterProfileGenerationJobList = {
+  items: ChapterProfileGenerationJob[];
+  total: number;
+  page: number;
+  page_size: number;
+};
+
+export type ChapterProfileGenerationItem = {
+  id: number;
+  job_id: number;
+  document_id: number;
+  section_id: number | null;
+  section_title: string | null;
+  section_path: string | null;
+  status: string;
+  profile_id: number | null;
+  used_llm: boolean;
+  confidence: number | null;
+  message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ChapterProfileGenerationItemList = {
+  items: ChapterProfileGenerationItem[];
+  total: number;
+  page: number;
+  page_size: number;
+};
+
 export type PlanSection = {
   id: number;
   document_id: number;
@@ -65,5 +117,40 @@ export const parseDocument = async (id: number) => {
 
 export const getDocumentSections = async (id: number) => {
   const { data } = await apiClient.get<DocumentParseResult>(`/documents/${id}/sections`);
+  return data;
+};
+
+export const createChapterProfileJob = async (documentId: number) => {
+  const { data } = await apiClient.post<{ job: ChapterProfileGenerationJob }>(
+    `/documents/${documentId}/chapter-profile-jobs`,
+  );
+  return data.job;
+};
+
+export const listChapterProfileJobs = async (query: {
+  document_id?: number;
+  status?: string;
+  page?: number;
+  page_size?: number;
+} = {}) => {
+  const { data } = await apiClient.get<ChapterProfileGenerationJobList>("/documents/chapter-profile-jobs", {
+    params: query,
+  });
+  return data;
+};
+
+export const getChapterProfileJob = async (jobId: number) => {
+  const { data } = await apiClient.get<ChapterProfileGenerationJob>(`/documents/chapter-profile-jobs/${jobId}`);
+  return data;
+};
+
+export const listChapterProfileJobItems = async (
+  jobId: number,
+  query: { status?: string; page?: number; page_size?: number } = {},
+) => {
+  const { data } = await apiClient.get<ChapterProfileGenerationItemList>(
+    `/documents/chapter-profile-jobs/${jobId}/items`,
+    { params: query },
+  );
   return data;
 };

@@ -507,7 +507,12 @@ class ChapterReviewProfile(Base):
     __tablename__ = "chapter_review_profile"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
-    task_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("review_task.id", ondelete="CASCADE"), index=True)
+    task_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("review_task.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     document_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("plan_document.id", ondelete="CASCADE"), index=True)
     section_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("plan_section.id", ondelete="CASCADE"), index=True)
     chapter_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
@@ -527,9 +532,73 @@ class ChapterReviewProfile(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    task: Mapped["ReviewTask"] = relationship("ReviewTask", foreign_keys=[task_id])
+    task: Mapped["ReviewTask | None"] = relationship("ReviewTask", foreign_keys=[task_id])
     document: Mapped[PlanDocument] = relationship("PlanDocument", foreign_keys=[document_id])
     section: Mapped[PlanSection] = relationship("PlanSection", foreign_keys=[section_id])
+
+
+class ChapterProfileGenerationJob(Base):
+    __tablename__ = "chapter_profile_generation_job"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    document_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("plan_document.id", ondelete="CASCADE"), index=True)
+    task_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("review_task.id", ondelete="SET NULL"), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(50), default="queued", index=True)
+    total_sections: Mapped[int] = mapped_column(Integer, default=0)
+    processed_sections: Mapped[int] = mapped_column(Integer, default=0)
+    created_count: Mapped[int] = mapped_column(Integer, default=0)
+    updated_count: Mapped[int] = mapped_column(Integer, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0)
+    rule_only_count: Mapped[int] = mapped_column(Integer, default=0)
+    celery_task_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    document: Mapped[PlanDocument] = relationship("PlanDocument", foreign_keys=[document_id])
+    task: Mapped["ReviewTask | None"] = relationship("ReviewTask", foreign_keys=[task_id])
+    items: Mapped[list["ChapterProfileGenerationItem"]] = relationship(
+        "ChapterProfileGenerationItem",
+        back_populates="job",
+        cascade="all, delete-orphan",
+        foreign_keys="ChapterProfileGenerationItem.job_id",
+    )
+
+
+class ChapterProfileGenerationItem(Base):
+    __tablename__ = "chapter_profile_generation_item"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    job_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("chapter_profile_generation_job.id", ondelete="CASCADE"),
+        index=True,
+    )
+    document_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("plan_document.id", ondelete="CASCADE"), index=True)
+    section_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("plan_section.id", ondelete="SET NULL"), nullable=True, index=True)
+    section_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    section_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    status: Mapped[str] = mapped_column(String(50), default="queued", index=True)
+    profile_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("chapter_review_profile.id", ondelete="SET NULL"), nullable=True, index=True)
+    used_llm: Mapped[bool] = mapped_column(Boolean, default=False)
+    confidence: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    job: Mapped[ChapterProfileGenerationJob] = relationship(
+        "ChapterProfileGenerationJob",
+        back_populates="items",
+        foreign_keys=[job_id],
+    )
+    document: Mapped[PlanDocument] = relationship("PlanDocument", foreign_keys=[document_id])
+    section: Mapped[PlanSection | None] = relationship("PlanSection", foreign_keys=[section_id])
+    profile: Mapped[ChapterReviewProfile | None] = relationship("ChapterReviewProfile", foreign_keys=[profile_id])
 
 
 class ReviewCheckpoint(Base):

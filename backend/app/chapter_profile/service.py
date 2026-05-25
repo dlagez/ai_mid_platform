@@ -9,7 +9,14 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.construction_ontology.service import recognize_construction_objects
-from app.db.models import ChapterReviewProfile, PlanSection, ReviewTask
+from app.db.models import (
+    ChapterProfileGenerationItem,
+    ChapterProfileGenerationJob,
+    ChapterReviewProfile,
+    PlanDocument,
+    PlanSection,
+    ReviewTask,
+)
 from app.services.model_service import ModelService
 from app.utils.exceptions import PlatformError
 
@@ -71,10 +78,202 @@ class ChapterProfileService:
         task = db.query(ReviewTask).filter(ReviewTask.id == task_id).first()
         if not task:
             raise PlatformError(f"Review task id={task_id} not found", status_code=404)
+        return await self._build_profiles_for_document(db, document_id=task.plan_document_id, task_id=task.id)
 
+    async def build_document_profiles(self, db: Session, document_id: int) -> dict[str, Any]:
+        self._ensure_construction_plan_document(db, document_id)
+        return await self._build_profiles_for_document(db, document_id=document_id, task_id=None)
+
+    def create_generation_job(self, db: Session, document_id: int, created_by: int | None = None) -> ChapterProfileGenerationJob:
+        document = self._ensure_construction_plan_document(db, document_id)
         sections = (
             db.query(PlanSection)
-            .filter(PlanSection.document_id == task.plan_document_id)
+            .filter(PlanSection.document_id == document.id)
+            .order_by(PlanSection.sort_no.asc(), PlanSection.id.asc())
+            .all()
+        )
+        if not sections:
+            raise PlatformError("The review task document has no parsed sections.", status_code=400)
+
+        section_map = {section.id: section for section in sections}
+        job = ChapterProfileGenerationJob(
+            document_id=document.id,
+            status="queued",
+            total_sections=len(sections),
+            created_by=created_by,
+        )
+        db.add(job)
+        db.flush()
+        for section in sections:
+            db.add(
+                ChapterProfileGenerationItem(
+                    job_id=job.id,
+                    document_id=document.id,
+                    section_id=section.id,
+                    section_title=section.title,
+                    section_path=_build_chapter_path(section, section_map),
+                    status="queued",
+                )
+            )
+        db.commit()
+        db.refresh(job)
+
+        from app.workers.chapter_profile_tasks import generate_chapter_profiles_job
+
+        async_result = generate_chapter_profiles_job.delay(job.id)
+        job.celery_task_id = async_result.id
+        db.commit()
+        db.refresh(job)
+        return job
+
+    def list_generation_jobs(
+        self,
+        db: Session,
+        *,
+        document_id: int | None = None,
+        status: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[ChapterProfileGenerationJob], int]:
+        query = db.query(ChapterProfileGenerationJob)
+        if document_id is not None:
+            query = query.filter(ChapterProfileGenerationJob.document_id == document_id)
+        if status:
+            query = query.filter(ChapterProfileGenerationJob.status == status)
+        total = query.count()
+        items = (
+            query.order_by(ChapterProfileGenerationJob.created_at.desc(), ChapterProfileGenerationJob.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+        return items, total
+
+    def get_generation_job(self, db: Session, job_id: int) -> ChapterProfileGenerationJob:
+        job = db.query(ChapterProfileGenerationJob).filter(ChapterProfileGenerationJob.id == job_id).first()
+        if not job:
+            raise PlatformError(f"Chapter profile generation job id={job_id} not found", status_code=404)
+        return job
+
+    def list_generation_items(
+        self,
+        db: Session,
+        *,
+        job_id: int,
+        status: str | None = None,
+        page: int = 1,
+        page_size: int = 100,
+    ) -> tuple[list[ChapterProfileGenerationItem], int]:
+        self.get_generation_job(db, job_id)
+        query = db.query(ChapterProfileGenerationItem).filter(ChapterProfileGenerationItem.job_id == job_id)
+        if status:
+            query = query.filter(ChapterProfileGenerationItem.status == status)
+        total = query.count()
+        items = (
+            query.order_by(ChapterProfileGenerationItem.id.asc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+        return items, total
+
+    async def run_generation_job(self, db: Session, job_id: int) -> dict[str, Any]:
+        job = self.get_generation_job(db, job_id)
+        if job.status in {"success", "partial_success", "failed"}:
+            return {"job_id": job.id, "status": job.status}
+
+        job.status = "running"
+        job.started_at = job.started_at or datetime.utcnow()
+        job.updated_at = datetime.utcnow()
+        db.commit()
+
+        try:
+            sections = (
+                db.query(PlanSection)
+                .filter(PlanSection.document_id == job.document_id)
+                .order_by(PlanSection.sort_no.asc(), PlanSection.id.asc())
+                .all()
+            )
+            section_map = {section.id: section for section in sections}
+            section_by_id = {section.id: section for section in sections}
+            items = (
+                db.query(ChapterProfileGenerationItem)
+                .filter(ChapterProfileGenerationItem.job_id == job.id)
+                .order_by(ChapterProfileGenerationItem.id.asc())
+                .all()
+            )
+            for item in items:
+                if item.status == "success":
+                    continue
+                item.status = "running"
+                item.started_at = item.started_at or datetime.utcnow()
+                item.updated_at = datetime.utcnow()
+                db.commit()
+
+                section = section_by_id.get(item.section_id or 0)
+                if not section:
+                    item.status = "failed"
+                    item.message = "Section not found."
+                    item.finished_at = datetime.utcnow()
+                    item.updated_at = datetime.utcnow()
+                    self._refresh_generation_job_summary(db, job)
+                    db.commit()
+                    continue
+
+                try:
+                    profile, created, llm_failed = await self._upsert_profile_for_section(
+                        db,
+                        section=section,
+                        section_map=section_map,
+                        document_id=job.document_id,
+                        task_id=job.task_id,
+                    )
+                    item.status = "rule_only" if llm_failed else "success"
+                    item.profile_id = profile.id
+                    item.used_llm = not llm_failed
+                    item.confidence = profile.confidence
+                    action = "created" if created else "updated"
+                    item.message = f"Profile {action}; LLM failed, rule-only profile saved." if llm_failed else f"Profile {action}."
+                    item.finished_at = datetime.utcnow()
+                    item.updated_at = datetime.utcnow()
+                    self._refresh_generation_job_summary(db, job)
+                    db.commit()
+                except Exception as exc:
+                    db.rollback()
+                    job = self.get_generation_job(db, job_id)
+                    item = db.query(ChapterProfileGenerationItem).filter(ChapterProfileGenerationItem.id == item.id).first()
+                    if item:
+                        item.status = "failed"
+                        item.message = str(exc)
+                        item.finished_at = datetime.utcnow()
+                        item.updated_at = datetime.utcnow()
+                    self._refresh_generation_job_summary(db, job)
+                    db.commit()
+            self._refresh_generation_job_summary(db, job)
+            job.finished_at = datetime.utcnow()
+            if job.failed_count >= job.total_sections:
+                job.status = "failed"
+            elif job.failed_count > 0 or job.rule_only_count > 0:
+                job.status = "partial_success"
+            else:
+                job.status = "success"
+            job.updated_at = datetime.utcnow()
+            db.commit()
+            return {"job_id": job.id, "status": job.status}
+        except Exception as exc:
+            db.rollback()
+            job = self.get_generation_job(db, job_id)
+            job.status = "failed"
+            job.error_message = str(exc)
+            job.finished_at = datetime.utcnow()
+            job.updated_at = datetime.utcnow()
+            db.commit()
+            raise
+
+    async def _build_profiles_for_document(self, db: Session, *, document_id: int, task_id: int | None) -> dict[str, Any]:
+        sections = (
+            db.query(PlanSection)
+            .filter(PlanSection.document_id == document_id)
             .order_by(PlanSection.sort_no.asc(), PlanSection.id.asc())
             .all()
         )
@@ -88,72 +287,124 @@ class ChapterProfileService:
         saved: list[ChapterReviewProfile] = []
 
         for section in sections:
-            text = f"{section.title}\n{section.content or ''}"
-            chapter_type = _detect_chapter_type(section.title, section.content)
-            objects = recognize_construction_objects(db, text)
-            main_domain = _detect_main_domain(text)
-            subdomains = _collect_subdomains(objects, text)
-            missing = _expected_missing_objects(chapter_type, objects)
-
-            ai_data: dict[str, Any] = {}
             try:
-                ai_data = await self._extract_profile_by_llm(section, chapter_type)
+                profile, created, llm_failed = await self._upsert_profile_for_section(
+                    db,
+                    section=section,
+                    section_map=section_map,
+                    document_id=document_id,
+                    task_id=task_id,
+                )
+                if created:
+                    created_count += 1
+                else:
+                    updated_count += 1
+                if llm_failed:
+                    failed.append({"section_id": section.id, "reason": "LLM failed; rule-only profile saved."})
+                saved.append(profile)
             except Exception as exc:
                 failed.append({"section_id": section.id, "reason": str(exc)})
-
-            existing = (
-                db.query(ChapterReviewProfile)
-                .filter(ChapterReviewProfile.task_id == task.id, ChapterReviewProfile.section_id == section.id)
-                .first()
-            )
-            values = {
-                "task_id": task.id,
-                "document_id": task.plan_document_id,
-                "section_id": section.id,
-                "chapter_title": section.title,
-                "chapter_path": _build_chapter_path(section, section_map),
-                "chapter_type": chapter_type,
-                "main_domain": main_domain,
-                "subdomains": subdomains,
-                "construction_objects": objects,
-                "materials": _as_list(ai_data.get("materials")),
-                "mentioned_parameters": _merge_lists(
-                    _as_list(ai_data.get("mentioned_parameters")),
-                    _object_related_values(objects, "related_parameters"),
-                    _extract_parameter_names(text),
-                ),
-                "mentioned_methods": _merge_lists(
-                    _as_list(ai_data.get("mentioned_methods")),
-                    _object_related_values(objects, "related_scenarios"),
-                    _extract_methods(text),
-                ),
-                "mentioned_risks": _as_list(ai_data.get("mentioned_risks")),
-                "mentioned_standards": _merge_lists(_as_list(ai_data.get("mentioned_standards")), _extract_standards(text)),
-                "expected_missing_objects": _merge_lists(missing, _as_list(ai_data.get("expected_missing_objects"))),
-                "summary": ai_data.get("summary") or _fallback_summary(section, chapter_type, objects),
-                "confidence": _as_confidence(ai_data.get("confidence"), default=0.55 if ai_data else 0.35),
-                "updated_at": datetime.utcnow(),
-            }
-            if existing:
-                for key, value in values.items():
-                    setattr(existing, key, value)
-                updated_count += 1
-                saved.append(existing)
-            else:
-                row = ChapterReviewProfile(**values)
-                db.add(row)
-                created_count += 1
-                saved.append(row)
         db.commit()
         for row in saved:
             db.refresh(row)
         return {
-            "task_id": task.id,
+            "task_id": task_id,
+            "document_id": document_id,
             "created_count": created_count,
             "updated_count": updated_count,
             "failed": failed,
             "items": saved,
         }
+
+    async def _upsert_profile_for_section(
+        self,
+        db: Session,
+        *,
+        section: PlanSection,
+        section_map: dict[int, PlanSection],
+        document_id: int,
+        task_id: int | None,
+    ) -> tuple[ChapterReviewProfile, bool, bool]:
+        text = f"{section.title}\n{section.content or ''}"
+        chapter_type = _detect_chapter_type(section.title, section.content)
+        objects = recognize_construction_objects(db, text)
+        main_domain = _detect_main_domain(text)
+        subdomains = _collect_subdomains(objects, text)
+        missing = _expected_missing_objects(chapter_type, objects)
+
+        ai_data: dict[str, Any] = {}
+        llm_failed = False
+        try:
+            ai_data = await self._extract_profile_by_llm(section, chapter_type)
+        except Exception:
+            llm_failed = True
+
+        query = db.query(ChapterReviewProfile).filter(
+            ChapterReviewProfile.document_id == document_id,
+            ChapterReviewProfile.section_id == section.id,
+        )
+        if task_id is None:
+            query = query.filter(ChapterReviewProfile.task_id.is_(None))
+        else:
+            query = query.filter(ChapterReviewProfile.task_id == task_id)
+        existing = query.first()
+        values = {
+            "task_id": task_id,
+            "document_id": document_id,
+            "section_id": section.id,
+            "chapter_title": section.title,
+            "chapter_path": _build_chapter_path(section, section_map),
+            "chapter_type": chapter_type,
+            "main_domain": main_domain,
+            "subdomains": subdomains,
+            "construction_objects": objects,
+            "materials": _as_list(ai_data.get("materials")),
+            "mentioned_parameters": _merge_lists(
+                _as_list(ai_data.get("mentioned_parameters")),
+                _object_related_values(objects, "related_parameters"),
+                _extract_parameter_names(text),
+            ),
+            "mentioned_methods": _merge_lists(
+                _as_list(ai_data.get("mentioned_methods")),
+                _object_related_values(objects, "related_scenarios"),
+                _extract_methods(text),
+            ),
+            "mentioned_risks": _as_list(ai_data.get("mentioned_risks")),
+            "mentioned_standards": _merge_lists(_as_list(ai_data.get("mentioned_standards")), _extract_standards(text)),
+            "expected_missing_objects": _merge_lists(missing, _as_list(ai_data.get("expected_missing_objects"))),
+            "summary": ai_data.get("summary") or _fallback_summary(section, chapter_type, objects),
+            "confidence": _as_confidence(ai_data.get("confidence"), default=0.55 if ai_data else 0.35),
+            "updated_at": datetime.utcnow(),
+        }
+        if existing:
+            for key, value in values.items():
+                setattr(existing, key, value)
+            db.flush()
+            return existing, False, llm_failed
+        row = ChapterReviewProfile(**values)
+        db.add(row)
+        db.flush()
+        return row, True, llm_failed
+
+    def _ensure_construction_plan_document(self, db: Session, document_id: int) -> PlanDocument:
+        document = db.query(PlanDocument).filter(PlanDocument.id == document_id).first()
+        if not document:
+            raise PlatformError(f"Document id={document_id} not found", status_code=404)
+        if document.document_type != "construction_plan":
+            raise PlatformError("Chapter profiles can only be generated for construction plan documents.", status_code=400)
+        if document.parse_status != "parsed":
+            raise PlatformError("Document must be parsed before generating chapter profiles.", status_code=400)
+        return document
+
+    def _refresh_generation_job_summary(self, db: Session, job: ChapterProfileGenerationJob) -> None:
+        items = db.query(ChapterProfileGenerationItem).filter(ChapterProfileGenerationItem.job_id == job.id).all()
+        success_statuses = {"success", "rule_only", "failed"}
+        job.processed_sections = sum(1 for item in items if item.status in success_statuses)
+        job.created_count = sum(1 for item in items if item.status in {"success", "rule_only"} and item.profile_id and "created" in (item.message or ""))
+        job.updated_count = sum(1 for item in items if item.status in {"success", "rule_only"} and item.profile_id and "updated" in (item.message or ""))
+        job.failed_count = sum(1 for item in items if item.status == "failed")
+        job.rule_only_count = sum(1 for item in items if item.status == "rule_only")
+        job.updated_at = datetime.utcnow()
 
     async def _extract_profile_by_llm(self, section: PlanSection, chapter_type: str | None) -> dict[str, Any]:
         content = (section.content or "")[:4000]

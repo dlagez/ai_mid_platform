@@ -24,12 +24,10 @@ import {
   EyeOutlined,
   NodeIndexOutlined,
   PlayCircleOutlined,
-  ProfileOutlined,
   ReloadOutlined,
   SearchOutlined,
 } from "@ant-design/icons";
 import {
-  buildChapterProfiles,
   confirmReviewIssue,
   getReviewTask,
   listReviewTaskIssues,
@@ -67,7 +65,6 @@ export const ReviewTaskIssuesPage = () => {
   const [loading, setLoading] = useState({
     list: false,
     confirm: false,
-    profiles: false,
     match: false,
     checkpointRun: false,
   });
@@ -95,21 +92,6 @@ export const ReviewTaskIssuesPage = () => {
   useEffect(() => {
     void load();
   }, [taskId]);
-
-  const buildProfiles = async () => {
-    setLoading((current) => ({ ...current, profiles: true }));
-    try {
-      const result = await buildChapterProfiles(taskId);
-      message.success(`Profiles ready: ${result.created_count} created, ${result.updated_count} updated.`);
-      if (result.failed.length) {
-        message.warning(`${result.failed.length} sections used rule-only profiles.`);
-      }
-    } catch {
-      message.error("Failed to build chapter profiles.");
-    } finally {
-      setLoading((current) => ({ ...current, profiles: false }));
-    }
-  };
 
   const matchCheckpoints = async () => {
     setLoading((current) => ({ ...current, match: true }));
@@ -222,9 +204,6 @@ export const ReviewTaskIssuesPage = () => {
 
       <Card title="Checkpoint Review">
         <Space wrap size={12}>
-          <Button icon={<ProfileOutlined />} loading={loading.profiles} onClick={() => void buildProfiles()}>
-            生成章节画像
-          </Button>
           <Button icon={<NodeIndexOutlined />} loading={loading.match} onClick={() => void matchCheckpoints()}>
             匹配审查点
           </Button>

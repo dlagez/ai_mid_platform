@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Button,
   Card,
@@ -21,13 +22,17 @@ import {
   CloudUploadOutlined,
   DeleteOutlined,
   FileTextOutlined,
+  ProfileOutlined,
   ReloadOutlined,
 } from "@ant-design/icons";
 import { PdfPreviewModal } from "../components/PdfPreviewModal";
 import {
   deleteDocument,
+  createChapterProfileJob,
   type DocumentType,
+  type ChapterProfileGenerationJob,
   getDocumentSections,
+  listChapterProfileJobs,
   listDocuments,
   parseDocument,
   type PlanSection,
@@ -50,12 +55,15 @@ const DocumentUploadReviewPage = ({
   uploadCardTitle,
   emptyDescription,
 }: DocumentUploadReviewProps) => {
+  const navigate = useNavigate();
   const [files, setFiles] = useState<DocumentRecord[]>([]);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [parsed, setParsed] = useState<DocumentParseResult | null>(null);
   const [selectedSection, setSelectedSection] = useState<PlanSection | null>(null);
-  const [loading, setLoading] = useState({ files: false, upload: false, parse: false, delete: false });
+  const [profileJobs, setProfileJobs] = useState<Record<number, ChapterProfileGenerationJob>>({});
+  const [loading, setLoading] = useState({ files: false, upload: false, parse: false, delete: false, profile: false });
   const [pdfPreview, setPdfPreview] = useState({ open: false, title: "", url: "" });
+  const enableChapterProfiles = documentType === "construction_plan";
 
   const refreshFiles = async () => {
     setLoading((s) => ({ ...s, files: true }));
@@ -68,20 +76,41 @@ const DocumentUploadReviewPage = ({
     }
   };
 
+  const refreshProfileJobs = async () => {
+    if (!enableChapterProfiles) {
+      return;
+    }
+    try {
+      const result = await listChapterProfileJobs({ page: 1, page_size: 200 });
+      const latest: Record<number, ChapterProfileGenerationJob> = {};
+      for (const job of result.items) {
+        if (!latest[job.document_id]) {
+          latest[job.document_id] = job;
+        }
+      }
+      setProfileJobs(latest);
+    } catch {
+      message.error("Failed to load chapter profile jobs.");
+    }
+  };
+
   useEffect(() => {
     void refreshFiles();
+    void refreshProfileJobs();
   }, []);
 
   useEffect(() => {
     const hasParsingFile = files.some((file) => file.parse_status === "uploaded" || file.parse_status === "parsing");
-    if (!hasParsingFile) {
+    const hasRunningProfileJob = Object.values(profileJobs).some((job) => job.status === "queued" || job.status === "running");
+    if (!hasParsingFile && !hasRunningProfileJob) {
       return undefined;
     }
     const timer = window.setInterval(() => {
       void refreshFiles();
+      void refreshProfileJobs();
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [files]);
+  }, [files, profileJobs]);
 
   const handleUpload = async () => {
     const originFile = fileList[0]?.originFileObj;
@@ -144,6 +173,7 @@ const DocumentUploadReviewPage = ({
         setSelectedSection(null);
       }
       await refreshFiles();
+      await refreshProfileJobs();
     } catch {
       message.error("Delete failed.");
     } finally {
@@ -157,6 +187,24 @@ const DocumentUploadReviewPage = ({
       setPdfPreview({ open: true, title: record.file_name, url });
     } catch {
       message.error("PDF preview failed.");
+    }
+  };
+
+  const handleCreateProfileJob = async (record: DocumentRecord) => {
+    if (record.parse_status !== "parsed") {
+      message.warning("Parse the document before generating chapter profiles.");
+      return;
+    }
+    setLoading((s) => ({ ...s, profile: true }));
+    try {
+      const job = await createChapterProfileJob(record.id);
+      message.success(`Chapter profile job #${job.id} queued.`);
+      await refreshProfileJobs();
+      navigate(`/construction-plan/profile-jobs/${job.id}`);
+    } catch {
+      message.error("Failed to create chapter profile job.");
+    } finally {
+      setLoading((s) => ({ ...s, profile: false }));
     }
   };
 
@@ -235,7 +283,7 @@ const DocumentUploadReviewPage = ({
                 },
                 {
                   title: "",
-                  width: 220,
+                  width: enableChapterProfiles ? 360 : 220,
                   render: (_, record) => (
                     <Space size={6} wrap>
                       <Button
@@ -254,6 +302,34 @@ const DocumentUploadReviewPage = ({
                       >
                         Parse
                       </Button>
+                      {enableChapterProfiles ? (
+                        <>
+                          <Button
+                            size="small"
+                            icon={<ProfileOutlined />}
+                            loading={loading.profile}
+                            disabled={record.parse_status !== "parsed"}
+                            onClick={() => void handleCreateProfileJob(record)}
+                          >
+                            Profile
+                          </Button>
+                          {profileJobs[record.id] ? (
+                            <Button
+                              size="small"
+                              type="link"
+                              className="table-link-button"
+                              onClick={() => navigate(`/construction-plan/profile-jobs/${profileJobs[record.id].id}`)}
+                            >
+                              <Space size={4}>
+                                <ProfileStatusTag status={profileJobs[record.id].status} />
+                                <span>
+                                  {profileJobs[record.id].processed_sections}/{profileJobs[record.id].total_sections}
+                                </span>
+                              </Space>
+                            </Button>
+                          ) : null}
+                        </>
+                      ) : null}
                       <Popconfirm
                         title="Delete this document?"
                         description="The uploaded file and parsed sections will be removed."
@@ -392,5 +468,11 @@ const isPdf = (fileName: string) => fileName.toLowerCase().endsWith(".pdf");
 
 const ParseStatusTag = ({ status }: { status: string }) => {
   const color = status === "parsed" ? "green" : status === "failed" ? "red" : "blue";
+  return <Tag color={color}>{status}</Tag>;
+};
+
+const ProfileStatusTag = ({ status }: { status: string }) => {
+  const color =
+    status === "success" ? "green" : status === "partial_success" ? "gold" : status === "failed" ? "red" : "blue";
   return <Tag color={color}>{status}</Tag>;
 };
