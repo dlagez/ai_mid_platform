@@ -5,7 +5,7 @@ import re
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.db.models import PlanSection, ReviewRule, ReviewTask, RuleExecutionLog
+from app.db.models import PlanDocument, PlanParseResult, PlanSection, ReviewRule, ReviewTask, RuleExecutionLog
 from app.rule_engine.matchers import (
     compare_value,
     contains_any,
@@ -24,7 +24,13 @@ def run_standard_rule_review(task: ReviewTask, db: Session) -> list[ReviewIssueC
 
     sections = (
         db.query(PlanSection)
-        .filter(PlanSection.document_id == task.plan_document_id)
+        .join(PlanParseResult, PlanParseResult.id == PlanSection.parse_result_id)
+        .join(PlanDocument, PlanDocument.id == PlanSection.document_id)
+        .filter(
+            PlanSection.document_id == task.plan_document_id,
+            PlanParseResult.section_parse_mode == PlanDocument.section_parse_mode,
+            PlanParseResult.parse_status == "parsed",
+        )
         .order_by(PlanSection.sort_no.asc(), PlanSection.id.asc())
         .all()
     )

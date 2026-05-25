@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { Key } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Button,
@@ -6,13 +7,16 @@ import {
   Col,
   Divider,
   Empty,
+  InputNumber,
   Modal,
   Popconfirm,
+  Progress,
   Row,
+  Select,
   Space,
   Spin,
-  Select,
   Table,
+  Tabs,
   Tag,
   Tree,
   Typography,
@@ -30,21 +34,25 @@ import {
 } from "@ant-design/icons";
 import { PdfPreviewModal } from "../components/PdfPreviewModal";
 import {
-  deleteDocument,
   createChapterProfileJob,
-  type DocumentType,
-  type ChapterProfileGenerationJob,
+  deleteDocument,
   getDocumentSections,
+  getSectionParseModeLabel,
   listChapterProfileJobs,
   listDocuments,
-  listSectionParseModes,
+  listParseJobs,
   parseDocument,
-  type PlanSection,
-  type SectionParseMode,
-  type SectionParseModeItem,
-  uploadDocument,
+  parseDocumentsBatch,
+  SECTION_PARSE_MODE_OPTIONS,
+  type ChapterProfileGenerationJob,
   type DocumentParseResult,
   type DocumentRecord,
+  type DocumentType,
+  type ParseJobRecord,
+  type ParseResultSummary,
+  type PlanSection,
+  type SectionParseMode,
+  uploadDocument,
 } from "../services/documentService";
 import { fetchPdfPreviewUrl } from "../services/filePreviewService";
 
@@ -54,6 +62,8 @@ type DocumentUploadReviewProps = {
   uploadCardTitle: string;
   emptyDescription: string;
 };
+
+const DEFAULT_PARSE_CONCURRENCY = 3;
 
 const DocumentUploadReviewPage = ({
   documentType,
@@ -65,16 +75,24 @@ const DocumentUploadReviewPage = ({
   const [files, setFiles] = useState<DocumentRecord[]>([]);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [parsed, setParsed] = useState<DocumentParseResult | null>(null);
+  const [parseJobs, setParseJobs] = useState<ParseJobRecord[]>([]);
   const [selectedSection, setSelectedSection] = useState<PlanSection | null>(null);
   const [profileJobs, setProfileJobs] = useState<Record<number, ChapterProfileGenerationJob>>({});
-  const [loading, setLoading] = useState({ files: false, upload: false, delete: false, profile: false });
   const [selectedFileId, setSelectedFileId] = useState<number | null>(null);
-  const [parsingFileId, setParsingFileId] = useState<number | null>(null);
-  const [viewingFileId, setViewingFileId] = useState<number | null>(null);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
+  const [activeParseMode, setActiveParseMode] = useState<SectionParseMode>("docling_auto");
+  const [parseConcurrency, setParseConcurrency] = useState(DEFAULT_PARSE_CONCURRENCY);
+  const [loading, setLoading] = useState({
+    files: false,
+    upload: false,
+    delete: false,
+    parse: false,
+    profile: false,
+    view: false,
+  });
   const [pdfPreview, setPdfPreview] = useState({ open: false, title: "", url: "" });
-  const [sectionParseModes, setSectionParseModes] = useState<SectionParseModeItem[]>([]);
-  const [sectionParseMode, setSectionParseMode] = useState<SectionParseMode>("docling_auto");
   const enableChapterProfiles = documentType === "construction_plan";
+  const selectedFile = selectedFileId !== null ? files.find((file) => file.id === selectedFileId) ?? null : null;
 
   const refreshFiles = async () => {
     setLoading((s) => ({ ...s, files: true }));
@@ -84,6 +102,18 @@ const DocumentUploadReviewPage = ({
       message.error("Failed to load file list.");
     } finally {
       setLoading((s) => ({ ...s, files: false }));
+    }
+  };
+
+  const refreshParseJobs = async () => {
+    try {
+      setParseJobs(await listParseJobs({ document_type: documentType, limit: 20 }));
+    } catch (error: unknown) {
+      const detail = getErrorDetail(error);
+      if (detail) {
+        message.warning(detail);
+      }
+      setParseJobs([]);
     }
   };
 
@@ -107,42 +137,43 @@ const DocumentUploadReviewPage = ({
 
   useEffect(() => {
     void refreshFiles();
+    void refreshParseJobs();
     void refreshProfileJobs();
-    if (enableChapterProfiles) {
-      void listSectionParseModes()
-        .then(setSectionParseModes)
-        .catch(() => message.error("Failed to load section parse modes."));
-    }
   }, []);
 
   useEffect(() => {
-    const hasParsingFile = files.some((file) => file.parse_status === "uploaded" || file.parse_status === "parsing");
+    const hasRunningParseJob = parseJobs.some((job) => job.status === "queued" || job.status === "running");
     const hasRunningProfileJob = Object.values(profileJobs).some((job) => job.status === "queued" || job.status === "running");
-    if (!hasParsingFile && !hasRunningProfileJob) {
+    if (!hasRunningParseJob && !hasRunningProfileJob) {
       return undefined;
     }
     const timer = window.setInterval(() => {
       void refreshFiles();
+      void refreshParseJobs();
       void refreshProfileJobs();
+      if (selectedFileId !== null) {
+        void handleView(selectedFileId, activeParseMode, { silent: true });
+      }
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [files, profileJobs]);
+  }, [parseJobs, profileJobs, selectedFileId, activeParseMode]);
 
   const handleUpload = async () => {
-    const originFile = fileList[0]?.originFileObj;
-    if (!originFile) {
+    const originFiles = fileList.map((item) => item.originFileObj).filter(Boolean) as File[];
+    if (!originFiles.length) {
       message.warning("Select a Word, Excel, PDF, or image file first.");
       return;
     }
-    const isDocx = originFile.name.toLowerCase().endsWith(".docx");
     setLoading((s) => ({ ...s, upload: true }));
     try {
-      const result = await uploadDocument(originFile, documentType, {
-        sectionParseMode: enableChapterProfiles && isDocx ? sectionParseMode : undefined,
-      });
-      message.success(`Uploaded: ${result.file_name}. Parsing started.`);
+      for (const file of originFiles) {
+        await uploadDocument(file, documentType, {
+          sectionParseMode: enableChapterProfiles && file.name.toLowerCase().endsWith(".docx") ? activeParseMode : undefined,
+        });
+      }
+      message.success(`${originFiles.length} file(s) uploaded. Parsing started.`);
       setFileList([]);
-      await refreshFiles();
+      await Promise.all([refreshFiles(), refreshParseJobs()]);
     } catch {
       message.error("Upload failed.");
     } finally {
@@ -150,57 +181,78 @@ const DocumentUploadReviewPage = ({
     }
   };
 
-  const selectFirstSection = (result: DocumentParseResult) => {
-    const first = findFirstSection(result.sections);
-    setSelectedSection(first);
-  };
-
-  const handleView = async (id: number) => {
-    setViewingFileId(id);
+  const handleView = async (
+    id: number,
+    mode: SectionParseMode = activeParseMode,
+    options: { silent?: boolean } = {},
+  ) => {
+    setLoading((s) => ({ ...s, view: true }));
     try {
-      const result = await getDocumentSections(id);
+      const result = await getDocumentSections(id, mode);
       setParsed(result);
-      selectFirstSection(result);
+      setSelectedSection(findFirstSection(result.sections));
     } catch {
-      message.error("Failed to load sections.");
+      if (!options.silent) {
+        message.error("Failed to load sections.");
+      }
     } finally {
-      setViewingFileId(null);
+      setLoading((s) => ({ ...s, view: false }));
     }
   };
 
-  const handleParse = async (record: DocumentRecord) => {
-    if (record.parse_status === "parsed") {
+  const handleParse = async (record: DocumentRecord, mode: SectionParseMode) => {
+    const result = findParseResult(record, mode);
+    if (isParseRunning(record.id, mode, parseJobs)) {
+      message.warning("该文档的当前解析方法已在队列中，请等待完成。");
+      return;
+    }
+
+    const submit = async () => {
+      setLoading((s) => ({ ...s, parse: true }));
+      try {
+        await parseDocument(record.id, mode);
+        message.success(`${result?.parse_status === "parsed" ? "Reparse" : "Parse"} 已加入解析队列。`);
+        await Promise.all([refreshFiles(), refreshParseJobs()]);
+      } catch (error: unknown) {
+        message.error(getErrorDetail(error) ?? "解析任务提交失败。");
+      } finally {
+        setLoading((s) => ({ ...s, parse: false }));
+      }
+    };
+
+    if (result?.parse_status === "parsed") {
       Modal.confirm({
-        title: "Re-parse this document?",
-        content: "Re-parsing will delete existing parsed sections and rebuild them.",
+        title: "Re-parse this result?",
+        content: `将只重跑 ${getSectionParseModeLabel(mode)}，不会覆盖其他解析方法的结果。`,
         okText: "Re-parse",
         okType: "danger",
         cancelText: "Cancel",
-        onOk: async () => {
-          await executeParse(record);
-        },
+        onOk: submit,
       });
       return;
     }
-    await executeParse(record);
+    await submit();
   };
 
-  const executeParse = async (record: DocumentRecord) => {
-    setParsingFileId(record.id);
-    const reparseMode =
-      enableChapterProfiles && record.file_name.toLowerCase().endsWith(".docx")
-        ? record.section_parse_mode || sectionParseMode
-        : undefined;
+  const handleBatchParse = async () => {
+    const ids = selectedRowKeys.map(Number).filter(Boolean);
+    if (!ids.length) {
+      message.warning("请先选择要解析的文档。");
+      return;
+    }
+    setLoading((s) => ({ ...s, parse: true }));
     try {
-      const result = await parseDocument(record.id, reparseMode);
-      setParsed(result);
-      selectFirstSection(result);
-      setSelectedFileId(record.id);
-      await refreshFiles();
-    } catch {
-      message.error("Parse failed.");
+      const jobs = await parseDocumentsBatch({
+        document_ids: ids,
+        section_parse_modes: [activeParseMode],
+        concurrency: parseConcurrency,
+      });
+      message.success(`${jobs.length} 个解析任务已加入队列，并发数 ${parseConcurrency}。`);
+      await Promise.all([refreshFiles(), refreshParseJobs()]);
+    } catch (error: unknown) {
+      message.error(getErrorDetail(error) ?? "批量解析任务提交失败。");
     } finally {
-      setParsingFileId(null);
+      setLoading((s) => ({ ...s, parse: false }));
     }
   };
 
@@ -214,8 +266,7 @@ const DocumentUploadReviewPage = ({
         setSelectedSection(null);
         setSelectedFileId(null);
       }
-      await refreshFiles();
-      await refreshProfileJobs();
+      await Promise.all([refreshFiles(), refreshParseJobs(), refreshProfileJobs()]);
     } catch {
       message.error("Delete failed.");
     } finally {
@@ -234,20 +285,20 @@ const DocumentUploadReviewPage = ({
 
   const handleRowClick = async (record: DocumentRecord) => {
     setSelectedFileId(record.id);
-    if (record.parse_status === "uploaded" || record.parse_status === "parsing") {
-      message.info("This document hasn't been parsed yet. Click 'Parse' to start.");
-      return;
+    await handleView(record.id, activeParseMode);
+  };
+
+  const handleModeChange = async (mode: SectionParseMode) => {
+    setActiveParseMode(mode);
+    if (selectedFileId !== null) {
+      await handleView(selectedFileId, mode);
     }
-    if (record.parse_status === "failed") {
-      message.warning("Parsing failed for this document. Click 'Retry' to try again.");
-      return;
-    }
-    await handleView(record.id);
   };
 
   const handleCreateProfileJob = async (record: DocumentRecord) => {
-    if (record.parse_status !== "parsed") {
-      message.warning("Parse the document before generating chapter profiles.");
+    const result = findParseResult(record, activeParseMode);
+    if (result?.parse_status !== "parsed") {
+      message.warning("Parse the active result before generating chapter profiles.");
       return;
     }
     setLoading((s) => ({ ...s, profile: true }));
@@ -267,7 +318,7 @@ const DocumentUploadReviewPage = ({
     <div className="page">
       <div className="page-heading">
         <h1>{title}</h1>
-        <Button icon={<ReloadOutlined />} loading={loading.files} onClick={() => void refreshFiles()}>
+        <Button icon={<ReloadOutlined />} loading={loading.files} onClick={() => void Promise.all([refreshFiles(), refreshParseJobs()])}>
           Refresh
         </Button>
       </div>
@@ -279,49 +330,48 @@ const DocumentUploadReviewPage = ({
               <Upload
                 beforeUpload={() => false}
                 fileList={fileList}
-                maxCount={1}
+                multiple
                 accept=".docx,.xlsx,.csv,.pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff,.webp"
                 onChange={({ fileList: next }) => setFileList(next)}
               >
-                <Button icon={<CloudUploadOutlined />}>Select Document File</Button>
+                <Button icon={<CloudUploadOutlined />}>Select Document Files</Button>
               </Upload>
               {enableChapterProfiles ? (
-                <div>
-                  <Typography.Text type="secondary">Word 分章策略（仅 .docx）</Typography.Text>
-                  <Select
-                    style={{ width: "100%", marginTop: 4 }}
-                    value={sectionParseMode}
-                    options={
-                      sectionParseModes.length
-                        ? sectionParseModes.map((item) => ({
-                            value: item.mode,
-                            label: item.label,
-                            title: item.description,
-                          }))
-                        : [{ value: "docling_auto", label: "Docling 线性分章（原方案）" }]
-                    }
-                    onChange={(value) => setSectionParseMode(value)}
-                  />
-                </div>
+                <ParseControls
+                  activeParseMode={activeParseMode}
+                  parseConcurrency={parseConcurrency}
+                  onModeChange={(mode) => void handleModeChange(mode)}
+                  onConcurrencyChange={setParseConcurrency}
+                />
               ) : null}
-              <Button
-                type="primary"
-                loading={loading.upload}
-                onClick={() => void handleUpload()}
-                icon={<CloudUploadOutlined />}
-              >
+              <Button type="primary" loading={loading.upload} onClick={() => void handleUpload()} icon={<CloudUploadOutlined />}>
                 Upload to MinIO
               </Button>
             </Space>
 
             <Divider />
 
-            <Typography.Text strong>Uploaded Files</Typography.Text>
+            <Space style={{ width: "100%", justifyContent: "space-between" }} wrap>
+              <Typography.Text strong>Uploaded Files</Typography.Text>
+              <Button
+                size="small"
+                icon={<SyncOutlined />}
+                loading={loading.parse}
+                disabled={!selectedRowKeys.length}
+                onClick={() => void handleBatchParse()}
+              >
+                Parse Selected
+              </Button>
+            </Space>
             <Table<DocumentRecord>
               rowKey="id"
               size="small"
               style={{ marginTop: 12 }}
               dataSource={files}
+              rowSelection={{
+                selectedRowKeys,
+                onChange: setSelectedRowKeys,
+              }}
               onRow={(record) => ({
                 onClick: () => void handleRowClick(record),
                 className: `document-row${selectedFileId === record.id ? " document-row-selected" : ""}`,
@@ -334,10 +384,15 @@ const DocumentUploadReviewPage = ({
                   ellipsis: true,
                   render: (value: string, record) =>
                     isPdf(value) ? (
-                      <Button type="link" size="small" className="table-link-button" onClick={(e) => {
-                        e.stopPropagation();
-                        void handlePreviewPdf(record);
-                      }}>
+                      <Button
+                        type="link"
+                        size="small"
+                        className="table-link-button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handlePreviewPdf(record);
+                        }}
+                      >
                         {value}
                       </Button>
                     ) : (
@@ -345,22 +400,15 @@ const DocumentUploadReviewPage = ({
                     ),
                 },
                 {
-                  title: "Status",
-                  dataIndex: "parse_status",
-                  width: 92,
-                  render: (v: string) => <ParseStatusTag status={v} />,
+                  title: "Results",
+                  width: 112,
+                  render: (_, record) => <ResultSummaryTag record={record} />,
                 },
-                ...(enableChapterProfiles
-                  ? [
-                      {
-                        title: "Parse Mode",
-                        dataIndex: "section_parse_mode",
-                        width: 130,
-                        ellipsis: true,
-                        render: (v: string) => sectionParseModes.find((m) => m.mode === v)?.label ?? v,
-                      },
-                    ]
-                  : []),
+                {
+                  title: "Active Mode",
+                  width: 128,
+                  render: (_, record) => <ParseStatusTag status={findParseResult(record, activeParseMode)?.parse_status ?? "uploaded"} />,
+                },
                 {
                   title: "Size",
                   dataIndex: "file_size",
@@ -368,78 +416,64 @@ const DocumentUploadReviewPage = ({
                   render: (v: number) => formatFileSize(v),
                 },
                 {
-                  title: "Created At",
-                  dataIndex: "created_at",
-                  width: 170,
-                  render: (v: string) => (v ? new Date(v).toLocaleString() : "-"),
-                },
-                {
                   title: "",
-                  width: enableChapterProfiles ? 300 : 160,
-                  render: (_, record) => (
-                    <Space size={6} wrap onClick={(e) => e.stopPropagation()}>
-                      <Button
-                        size="small"
-                        icon={
-                          record.parse_status === "parsing" ? (
-                            <SyncOutlined spin />
-                          ) : (
-                            <ReloadOutlined />
-                          )
-                        }
-                        loading={parsingFileId === record.id}
-                        disabled={record.parse_status === "parsing"}
-                        onClick={() => void handleParse(record)}
-                      >
-                        {record.parse_status === "parsing"
-                          ? "Parsing..."
-                          : record.parse_status === "parsed"
-                            ? "Re-parse"
-                            : record.parse_status === "failed"
-                              ? "Retry"
-                              : "Parse"}
-                      </Button>
-                      {enableChapterProfiles ? (
-                        <>
-                          <Button
-                            size="small"
-                            icon={<ProfileOutlined />}
-                            loading={loading.profile}
-                            disabled={record.parse_status !== "parsed"}
-                            onClick={() => void handleCreateProfileJob(record)}
-                          >
-                            Profile
-                          </Button>
-                          {profileJobs[record.id] ? (
+                  width: enableChapterProfiles ? 292 : 172,
+                  render: (_, record) => {
+                    const result = findParseResult(record, activeParseMode);
+                    const running = isParseRunning(record.id, activeParseMode, parseJobs);
+                    return (
+                      <Space size={6} wrap onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          size="small"
+                          icon={running ? <SyncOutlined spin /> : <ReloadOutlined />}
+                          loading={loading.parse && selectedFileId === record.id}
+                          disabled={running}
+                          onClick={() => void handleParse(record, activeParseMode)}
+                        >
+                          {running ? "Parsing..." : result?.parse_status === "parsed" ? "Reparse" : result?.parse_status === "failed" ? "Retry" : "Parse"}
+                        </Button>
+                        {enableChapterProfiles ? (
+                          <>
                             <Button
                               size="small"
-                              type="link"
-                              className="table-link-button"
-                              onClick={() => navigate(`/construction-plan/profile-jobs/${profileJobs[record.id].id}`)}
+                              icon={<ProfileOutlined />}
+                              loading={loading.profile}
+                              disabled={result?.parse_status !== "parsed"}
+                              onClick={() => void handleCreateProfileJob(record)}
                             >
-                              <Space size={4}>
-                                <ProfileStatusTag status={profileJobs[record.id].status} />
-                                <span>
-                                  {profileJobs[record.id].processed_sections}/{profileJobs[record.id].total_sections}
-                                </span>
-                              </Space>
+                              Profile
                             </Button>
-                          ) : null}
-                        </>
-                      ) : null}
-                      <Popconfirm
-                        title="Delete this document?"
-                        description="The uploaded file and parsed sections will be removed."
-                        okText="Delete"
-                        okButtonProps={{ danger: true }}
-                        onConfirm={() => void handleDelete(record)}
-                      >
-                        <Button size="small" danger icon={<DeleteOutlined />} loading={loading.delete}>
-                          Delete
-                        </Button>
-                      </Popconfirm>
-                    </Space>
-                  ),
+                            {profileJobs[record.id] ? (
+                              <Button
+                                size="small"
+                                type="link"
+                                className="table-link-button"
+                                onClick={() => navigate(`/construction-plan/profile-jobs/${profileJobs[record.id].id}`)}
+                              >
+                                <Space size={4}>
+                                  <ProfileStatusTag status={profileJobs[record.id].status} />
+                                  <span>
+                                    {profileJobs[record.id].processed_sections}/{profileJobs[record.id].total_sections}
+                                  </span>
+                                </Space>
+                              </Button>
+                            ) : null}
+                          </>
+                        ) : null}
+                        <Popconfirm
+                          title="Delete this document?"
+                          description="The uploaded file and parsed sections will be removed."
+                          okText="Delete"
+                          okButtonProps={{ danger: true }}
+                          onConfirm={() => void handleDelete(record)}
+                        >
+                          <Button size="small" danger icon={<DeleteOutlined />} loading={loading.delete}>
+                            Delete
+                          </Button>
+                        </Popconfirm>
+                      </Space>
+                    );
+                  },
                 },
               ]}
             />
@@ -447,61 +481,34 @@ const DocumentUploadReviewPage = ({
         </Col>
 
         <Col xs={24} xl={14}>
-          <Card title={parsed ? `Sections — ${parsed.file_name}` : "Sections"}>
-            <Spin spinning={viewingFileId !== null}>
-            {parsed ? (
-              <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                <Space wrap>
-                  <Tag color="blue">{parsed.file_name}</Tag>
+          <Card
+            title={parsed ? `Sections — ${parsed.file_name}` : "Sections"}
+            extra={
+              parsed ? (
+                <Space>
                   <ParseStatusTag status={parsed.parse_status} />
-                  {enableChapterProfiles ? (
-                    <Tag>
-                      {sectionParseModes.find((m) => m.mode === parsed.section_parse_mode)?.label ??
-                        parsed.section_parse_mode}
-                    </Tag>
-                  ) : null}
+                  <Tag color="purple">{getSectionParseModeLabel(parsed.section_parse_mode)}</Tag>
                 </Space>
-                {parsed.sections.length ? (
-                  <Row gutter={[16, 16]}>
-                    <Col xs={24} lg={10}>
-                      <div className="plan-section-tree">
-                        <Tree
-                          blockNode
-                          defaultExpandAll
-                          selectedKeys={selectedSection ? [String(selectedSection.id)] : []}
-                          treeData={toTreeData(parsed.sections)}
-                          onSelect={(keys) => {
-                            const key = keys[0];
-                            if (!key) {
-                              return;
-                            }
-                            setSelectedSection(findSection(parsed.sections, Number(key)));
-                          }}
-                        />
-                      </div>
-                    </Col>
-                    <Col xs={24} lg={14}>
-                      <div className="plan-section-content">
-                        {selectedSection ? (
-                          <>
-                            <Typography.Title level={4}>{selectedSection.title}</Typography.Title>
-                            <Typography.Paragraph>
-                              {selectedSection.content || "No content found for this section."}
-                            </Typography.Paragraph>
-                          </>
-                        ) : (
-                          <Empty description="Select a section" />
-                        )}
-                      </div>
-                    </Col>
-                  </Row>
-                ) : (
-                  <Empty description="No sections found in this document." />
-                )}
-              </Space>
-            ) : (
-              <Typography.Text type="secondary">{emptyDescription}</Typography.Text>
-            )}
+              ) : null
+            }
+          >
+            <ParseProgressPanel jobs={parseJobs} />
+            {enableChapterProfiles ? (
+              <Tabs
+                activeKey={activeParseMode}
+                items={SECTION_PARSE_MODE_OPTIONS.map((item) => ({
+                  key: item.mode,
+                  label: item.label,
+                }))}
+                onChange={(key) => void handleModeChange(key as SectionParseMode)}
+              />
+            ) : null}
+            <Spin spinning={loading.view}>
+              {parsed ? (
+                <SectionsViewer parsed={parsed} selectedSection={selectedSection} onSelectSection={setSelectedSection} />
+              ) : (
+                <Typography.Text type="secondary">{emptyDescription}</Typography.Text>
+              )}
             </Spin>
           </Card>
         </Col>
@@ -513,6 +520,88 @@ const DocumentUploadReviewPage = ({
         onClose={() => setPdfPreview({ open: false, title: "", url: "" })}
       />
     </div>
+  );
+};
+
+const ParseControls = ({
+  activeParseMode,
+  parseConcurrency,
+  onModeChange,
+  onConcurrencyChange,
+}: {
+  activeParseMode: SectionParseMode;
+  parseConcurrency: number;
+  onModeChange: (mode: SectionParseMode) => void;
+  onConcurrencyChange: (value: number) => void;
+}) => (
+  <Row gutter={[8, 8]}>
+    <Col span={16}>
+      <Typography.Text type="secondary">解析方法</Typography.Text>
+      <Select
+        style={{ width: "100%", marginTop: 4 }}
+        value={activeParseMode}
+        options={SECTION_PARSE_MODE_OPTIONS.map((item) => ({
+          value: item.mode,
+          label: item.label,
+          title: item.description,
+        }))}
+        onChange={onModeChange}
+      />
+    </Col>
+    <Col span={8}>
+      <Typography.Text type="secondary">同时解析数</Typography.Text>
+      <InputNumber
+        min={1}
+        max={8}
+        value={parseConcurrency}
+        style={{ width: "100%", marginTop: 4 }}
+        onChange={(value) => onConcurrencyChange(Number(value || DEFAULT_PARSE_CONCURRENCY))}
+      />
+    </Col>
+  </Row>
+);
+
+const SectionsViewer = ({
+  parsed,
+  selectedSection,
+  onSelectSection,
+}: {
+  parsed: DocumentParseResult;
+  selectedSection: PlanSection | null;
+  onSelectSection: (section: PlanSection | null) => void;
+}) => {
+  if (!parsed.sections.length) {
+    return <Empty description={parsed.parse_status === "uploaded" ? "该方法尚未解析。" : "No sections found in this result."} />;
+  }
+  return (
+    <Row gutter={[16, 16]}>
+      <Col xs={24} lg={10}>
+        <div className="plan-section-tree">
+          <Tree
+            blockNode
+            defaultExpandAll
+            selectedKeys={selectedSection ? [String(selectedSection.id)] : []}
+            treeData={toTreeData(parsed.sections)}
+            onSelect={(keys) => {
+              const key = keys[0];
+              onSelectSection(key ? findSection(parsed.sections, Number(key)) : null);
+            }}
+          />
+        </div>
+      </Col>
+      <Col xs={24} lg={14}>
+        <div className="plan-section-content">
+          {selectedSection ? (
+            <>
+              <Typography.Title level={4}>{selectedSection.title}</Typography.Title>
+              <Typography.Paragraph>{selectedSection.content || "No content found for this section."}</Typography.Paragraph>
+            </>
+          ) : (
+            <Empty description="Select a section" />
+          )}
+        </div>
+      </Col>
+    </Row>
   );
 };
 
@@ -554,9 +643,17 @@ const findSection = (sections: PlanSection[], id: number): PlanSection | null =>
   return null;
 };
 
-const findFirstSection = (sections: PlanSection[]): PlanSection | null => {
-  const [first] = sections;
-  return first ?? null;
+const findFirstSection = (sections: PlanSection[]): PlanSection | null => sections[0] ?? null;
+
+const findParseResult = (record: DocumentRecord, mode: SectionParseMode): ParseResultSummary | undefined =>
+  record.parse_results.find((result) => result.section_parse_mode === mode);
+
+const isParseRunning = (documentId: number, mode: SectionParseMode, jobs: ParseJobRecord[]) =>
+  jobs.some((job) => job.document_id === documentId && job.section_parse_mode === mode && (job.status === "queued" || job.status === "running"));
+
+const ResultSummaryTag = ({ record }: { record: DocumentRecord }) => {
+  const parsedCount = record.parse_results.filter((result) => result.parse_status === "parsed").length;
+  return <Tag color={parsedCount ? "green" : "default"}>{parsedCount}/{SECTION_PARSE_MODE_OPTIONS.length} parsed</Tag>;
 };
 
 const formatFileSize = (size: number) => {
@@ -571,8 +668,37 @@ const formatFileSize = (size: number) => {
 
 const isPdf = (fileName: string) => fileName.toLowerCase().endsWith(".pdf");
 
+const ParseProgressPanel = ({ jobs }: { jobs: ParseJobRecord[] }) => {
+  const recent = jobs.slice(0, 6);
+  if (!recent.length) {
+    return null;
+  }
+  return (
+    <div className="parse-progress-panel">
+      <Space direction="vertical" size={8} style={{ width: "100%" }}>
+        <Typography.Text strong>近期解析任务</Typography.Text>
+        {recent.map((job) => (
+          <div className="parse-job-row" key={job.id}>
+            <Space wrap>
+              <Tag>{job.file_name}</Tag>
+              <Tag color="purple">{getSectionParseModeLabel(job.section_parse_mode)}</Tag>
+              <Tag>{job.job_type}</Tag>
+              <ParseStatusTag status={job.status} />
+            </Space>
+            <Progress
+              size="small"
+              percent={Math.max(0, Math.min(job.progress ?? 0, 100))}
+              status={job.status === "failed" ? "exception" : job.status === "success" ? "success" : job.status === "running" ? "active" : "normal"}
+            />
+          </div>
+        ))}
+      </Space>
+    </div>
+  );
+};
+
 const ParseStatusTag = ({ status }: { status: string }) => {
-  const color = status === "parsed" ? "green" : status === "failed" ? "red" : "blue";
+  const color = status === "parsed" || status === "success" ? "green" : status === "failed" ? "red" : status === "queued" ? "gold" : "blue";
   return <Tag color={color}>{status}</Tag>;
 };
 
@@ -581,3 +707,11 @@ const ProfileStatusTag = ({ status }: { status: string }) => {
     status === "success" ? "green" : status === "partial_success" ? "gold" : status === "failed" ? "red" : "blue";
   return <Tag color={color}>{status}</Tag>;
 };
+
+const getErrorDetail = (error: unknown) =>
+  typeof error === "object" &&
+  error !== null &&
+  "response" in error &&
+  typeof (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail === "string"
+    ? (error as { response: { data: { detail: string } } }).response.data.detail
+    : null;

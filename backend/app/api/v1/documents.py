@@ -6,6 +6,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.chapter_profile.schemas import (
@@ -15,11 +16,11 @@ from app.chapter_profile.schemas import (
     CreateChapterProfileGenerationJobResponse,
 )
 from app.chapter_profile.service import ChapterProfileService, get_chapter_profile_service
-from app.db.models import PlanDocument, PlanSection
+from app.db.models import PlanDocument, PlanParseJob, PlanParseResult, PlanSection
 from app.db.session import get_db
 from app.parsers.factory import ParserConfigError, ParserUnsupportedFileError, get_parser, validate_parser_file
 from app.parsers.section_parse_strategies import SECTION_PARSE_MODES, resolve_section_parse_mode
-from app.services.document_service import DocumentService, get_document_service
+from app.services.document_service import DocumentParseInProgressError, DocumentService, get_document_service
 from app.utils.exceptions import PlatformError
 from app.utils.jwt import CurrentUser, require_permission
 
@@ -41,6 +42,19 @@ SUPPORTED_PLAN_FILE_EXTENSIONS = (
 DOCUMENT_TYPES = {"template", "construction_plan"}
 
 
+class ParseResultItem(BaseModel):
+    id: int
+    document_id: int
+    section_parse_mode: str
+    parse_status: str
+    parse_progress: int
+    section_count: int
+    error_message: str | None
+    parsed_at: str | None
+    created_at: str
+    updated_at: str
+
+
 class DocumentItem(BaseModel):
     id: int
     file_name: str
@@ -49,6 +63,8 @@ class DocumentItem(BaseModel):
     document_type: str
     section_parse_mode: str
     parse_status: str
+    parse_progress: int
+    parse_results: list["ParseResultItem"] = Field(default_factory=list)
     created_at: str
 
     model_config = {"from_attributes": True}
@@ -60,6 +76,7 @@ class DocumentUploadResponse(BaseModel):
     document_type: str
     section_parse_mode: str
     status: str
+    parse_progress: int
 
 
 class SectionParseModeItem(BaseModel):
@@ -71,6 +88,7 @@ class SectionParseModeItem(BaseModel):
 class SectionItem(BaseModel):
     id: int
     document_id: int
+    parse_result_id: int
     parent_id: int | None
     level: int
     title: str
@@ -84,10 +102,37 @@ class SectionItem(BaseModel):
 class DocumentParseResponse(BaseModel):
     id: int
     file_name: str
+    parse_result_id: int | None
     section_parse_mode: str
     parse_status: str
+    parse_progress: int
     toc_text: str
     sections: list[SectionItem]
+
+
+class ParseJobItem(BaseModel):
+    id: int
+    document_id: int
+    file_name: str
+    parse_result_id: int | None
+    section_parse_mode: str
+    job_type: str
+    status: str
+    progress: int
+    error_message: str | None
+    created_at: str
+    started_at: str | None
+    finished_at: str | None
+
+
+class DocumentParseBatchRequest(BaseModel):
+    document_ids: list[int] = Field(min_length=1)
+    section_parse_modes: list[str] = Field(default_factory=lambda: ["docling_auto"], min_length=1)
+    concurrency: int = Field(default=3, ge=1, le=8)
+
+
+class DocumentParseBatchResponse(BaseModel):
+    jobs: list[ParseJobItem]
 
 
 @router.get("/section-parse-modes", response_model=list[SectionParseModeItem])
@@ -124,18 +169,14 @@ async def upload_document(
         document_type=document_type,
         section_parse_mode=resolved_section_parse_mode,
     )
-    background_tasks.add_task(
-        service.parse_in_background,
-        record.id,
-        parser,
-        record.section_parse_mode,
-    )
+    background_tasks.add_task(service.parse_in_background, record.id, parser)
     return DocumentUploadResponse(
         id=record.id,
         file_name=record.file_name,
         document_type=record.document_type,
         section_parse_mode=record.section_parse_mode,
         status=record.parse_status,
+        parse_progress=record.parse_progress,
     )
 
 
@@ -205,6 +246,43 @@ async def list_chapter_profile_job_items(
     return ChapterProfileGenerationItemList(items=items, total=total, page=page, page_size=page_size)
 
 
+@router.get("/parse-jobs/list", response_model=list[ParseJobItem])
+async def list_parse_jobs(
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    service: Annotated[DocumentService, Depends(get_document_service)],
+    db: Annotated[Session, Depends(get_db)],
+    document_type: Annotated[str | None, Query()] = None,
+    limit: int = Query(20, ge=1, le=100),
+) -> list[ParseJobItem]:
+    if document_type and document_type not in DOCUMENT_TYPES:
+        raise PlatformError(f"Invalid document_type: {document_type}", status_code=400)
+    try:
+        return [_to_parse_job_item(job) for job in service.list_recent_parse_jobs(db, document_type=document_type, limit=limit)]
+    except SQLAlchemyError as exc:
+        raise PlatformError(f"Failed to load parse jobs from database: {exc}", status_code=500) from exc
+
+
+@router.post("/parse-jobs/batch", response_model=DocumentParseBatchResponse)
+async def parse_documents_batch(
+    payload: DocumentParseBatchRequest,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
+    service: Annotated[DocumentService, Depends(get_document_service)],
+    db: Annotated[Session, Depends(get_db)],
+    background_tasks: BackgroundTasks,
+) -> DocumentParseBatchResponse:
+    try:
+        modes = [resolve_section_parse_mode(mode) for mode in payload.section_parse_modes]
+        jobs = service.create_parse_jobs(db, payload.document_ids, modes)
+    except DocumentParseInProgressError as exc:
+        raise PlatformError(str(exc), status_code=409) from exc
+    except (ParserConfigError, ParserUnsupportedFileError) as exc:
+        raise PlatformError(str(exc), status_code=400) from exc
+    except FileNotFoundError as exc:
+        raise PlatformError(str(exc), status_code=404) from exc
+    background_tasks.add_task(service.run_parse_jobs_queue, [job.id for job in jobs], payload.concurrency)
+    return DocumentParseBatchResponse(jobs=[_to_parse_job_item(job) for job in jobs])
+
+
 @router.delete("/{record_id}", response_model=DocumentItem)
 async def delete_document(
     record_id: int,
@@ -237,6 +315,7 @@ async def parse_document(
     _: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
     service: Annotated[DocumentService, Depends(get_document_service)],
     db: Annotated[Session, Depends(get_db)],
+    background_tasks: BackgroundTasks,
     parser: Annotated[str | None, Query()] = None,
     section_parse_mode: Annotated[str | None, Query()] = None,
 ) -> DocumentParseResponse:
@@ -244,18 +323,18 @@ async def parse_document(
     if not record:
         raise PlatformError(f"Document id={record_id} not found", status_code=404)
     try:
-        record = service.parse(db, record_id, parser, section_parse_mode)
+        job = service.create_parse_job(db, record_id, parser, section_parse_mode)
+    except DocumentParseInProgressError as exc:
+        raise PlatformError(str(exc), status_code=409) from exc
     except (ParserConfigError, ParserUnsupportedFileError) as exc:
         raise PlatformError(str(exc), status_code=400) from exc
-    sections = service.get_sections(db, record_id)
-    return DocumentParseResponse(
-        id=record.id,
-        file_name=record.file_name,
-        section_parse_mode=record.section_parse_mode,
-        parse_status=record.parse_status,
-        toc_text=_sections_to_toc_text(sections),
-        sections=_build_section_tree(sections),
-    )
+    except FileNotFoundError as exc:
+        raise PlatformError(str(exc), status_code=404) from exc
+    except Exception as exc:
+        raise PlatformError(f"Document parse enqueue failed: {exc}", status_code=500) from exc
+    background_tasks.add_task(service.run_parse_job, job.id)
+    result, sections = service.get_sections(db, record_id, job.section_parse_mode)
+    return _to_document_parse_response(record, result, sections, job.section_parse_mode)
 
 
 @router.get("/{record_id}/sections", response_model=DocumentParseResponse)
@@ -264,19 +343,13 @@ async def get_document_sections(
     _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
     service: Annotated[DocumentService, Depends(get_document_service)],
     db: Annotated[Session, Depends(get_db)],
+    section_parse_mode: Annotated[str | None, Query()] = None,
 ) -> DocumentParseResponse:
     record = db.query(PlanDocument).filter(PlanDocument.id == record_id).first()
     if not record:
         raise PlatformError(f"Document id={record_id} not found", status_code=404)
-    sections = service.get_sections(db, record_id)
-    return DocumentParseResponse(
-        id=record.id,
-        file_name=record.file_name,
-        section_parse_mode=record.section_parse_mode,
-        parse_status=record.parse_status,
-        toc_text=_sections_to_toc_text(sections),
-        sections=_build_section_tree(sections),
-    )
+    result, sections = service.get_sections(db, record_id, section_parse_mode or record.section_parse_mode)
+    return _to_document_parse_response(record, result, sections, section_parse_mode or record.section_parse_mode)
 
 
 @router.get("/{record_id}/preview")
@@ -305,6 +378,7 @@ def _build_section_tree(sections: list[PlanSection]) -> list[SectionItem]:
         section.id: SectionItem(
             id=section.id,
             document_id=section.document_id,
+            parse_result_id=section.parse_result_id,
             parent_id=section.parent_id,
             level=section.level,
             title=section.title,
@@ -335,7 +409,59 @@ def _to_document_item(record: PlanDocument) -> DocumentItem:
         document_type=record.document_type,
         section_parse_mode=getattr(record, "section_parse_mode", None) or "docling_auto",
         parse_status=record.parse_status,
+        parse_progress=getattr(record, "parse_progress", 0) or 0,
+        parse_results=[_to_parse_result_item(result) for result in getattr(record, "parse_results", [])],
         created_at=record.created_at.isoformat() if record.created_at else "",
+    )
+
+
+def _to_document_parse_response(
+    record: PlanDocument,
+    result: PlanParseResult | None,
+    sections: list[PlanSection],
+    fallback_mode: str,
+) -> DocumentParseResponse:
+    return DocumentParseResponse(
+        id=record.id,
+        file_name=record.file_name,
+        parse_result_id=result.id if result else None,
+        section_parse_mode=result.section_parse_mode if result else resolve_section_parse_mode(fallback_mode),
+        parse_status=result.parse_status if result else "uploaded",
+        parse_progress=result.parse_progress if result else 0,
+        toc_text=result.toc_text if result else _sections_to_toc_text(sections),
+        sections=_build_section_tree(sections),
+    )
+
+
+def _to_parse_result_item(result: PlanParseResult) -> ParseResultItem:
+    return ParseResultItem(
+        id=result.id,
+        document_id=result.document_id,
+        section_parse_mode=result.section_parse_mode,
+        parse_status=result.parse_status,
+        parse_progress=result.parse_progress,
+        section_count=result.section_count,
+        error_message=result.error_message,
+        parsed_at=result.parsed_at.isoformat() if result.parsed_at else None,
+        created_at=result.created_at.isoformat() if result.created_at else "",
+        updated_at=result.updated_at.isoformat() if result.updated_at else "",
+    )
+
+
+def _to_parse_job_item(job: PlanParseJob) -> ParseJobItem:
+    return ParseJobItem(
+        id=job.id,
+        document_id=job.document_id,
+        file_name=job.document.file_name if job.document else "",
+        parse_result_id=job.parse_result_id,
+        section_parse_mode=job.section_parse_mode,
+        job_type=job.job_type,
+        status=job.status,
+        progress=job.progress,
+        error_message=job.error_message,
+        created_at=job.created_at.isoformat() if job.created_at else "",
+        started_at=job.started_at.isoformat() if job.started_at else None,
+        finished_at=job.finished_at.isoformat() if job.finished_at else None,
     )
 
 

@@ -94,6 +94,21 @@ body {
   word-break: break-word;
 }
 
+.parse-progress-panel {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid #e8edf3;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.parse-job-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(160px, 260px);
+  gap: 12px;
+  align-items: center;
+}
+
 .markdown-preview {
   min-height: 520px;
   max-height: calc(100vh - 220px);

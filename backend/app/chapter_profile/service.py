@@ -14,6 +14,7 @@ from app.db.models import (
     ChapterProfileGenerationJob,
     ChapterReviewProfile,
     PlanDocument,
+    PlanParseResult,
     PlanSection,
     ReviewTask,
 )
@@ -88,7 +89,12 @@ class ChapterProfileService:
         document = self._ensure_construction_plan_document(db, document_id)
         sections = (
             db.query(PlanSection)
-            .filter(PlanSection.document_id == document.id)
+            .join(PlanParseResult, PlanParseResult.id == PlanSection.parse_result_id)
+            .filter(
+                PlanSection.document_id == document.id,
+                PlanParseResult.section_parse_mode == document.section_parse_mode,
+                PlanParseResult.parse_status == "parsed",
+            )
             .order_by(PlanSection.sort_no.asc(), PlanSection.id.asc())
             .all()
         )
@@ -190,7 +196,13 @@ class ChapterProfileService:
         try:
             sections = (
                 db.query(PlanSection)
-                .filter(PlanSection.document_id == job.document_id)
+                .join(PlanParseResult, PlanParseResult.id == PlanSection.parse_result_id)
+                .join(PlanDocument, PlanDocument.id == PlanSection.document_id)
+                .filter(
+                    PlanSection.document_id == job.document_id,
+                    PlanParseResult.section_parse_mode == PlanDocument.section_parse_mode,
+                    PlanParseResult.parse_status == "parsed",
+                )
                 .order_by(PlanSection.sort_no.asc(), PlanSection.id.asc())
                 .all()
             )
@@ -273,7 +285,13 @@ class ChapterProfileService:
     async def _build_profiles_for_document(self, db: Session, *, document_id: int, task_id: int | None) -> dict[str, Any]:
         sections = (
             db.query(PlanSection)
-            .filter(PlanSection.document_id == document_id)
+            .join(PlanParseResult, PlanParseResult.id == PlanSection.parse_result_id)
+            .join(PlanDocument, PlanDocument.id == PlanSection.document_id)
+            .filter(
+                PlanSection.document_id == document_id,
+                PlanParseResult.section_parse_mode == PlanDocument.section_parse_mode,
+                PlanParseResult.parse_status == "parsed",
+            )
             .order_by(PlanSection.sort_no.asc(), PlanSection.id.asc())
             .all()
         )

@@ -5,7 +5,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from app.db.models import PlanDocument, PlanSection, ReviewTemplate, TemplateSectionRule
+from app.db.models import PlanDocument, PlanParseResult, PlanSection, ReviewTemplate, TemplateSectionRule
 from app.review_templates.schemas import (
     ImportTemplateFromDocumentRequest,
     ReviewTemplateCreate,
@@ -81,7 +81,12 @@ class ReviewTemplateService:
 
         sections = (
             db.query(PlanSection)
-            .filter(PlanSection.document_id == data.document_id)
+            .join(PlanParseResult, PlanParseResult.id == PlanSection.parse_result_id)
+            .filter(
+                PlanSection.document_id == data.document_id,
+                PlanParseResult.section_parse_mode == document.section_parse_mode,
+                PlanParseResult.parse_status == "parsed",
+            )
             .order_by(PlanSection.sort_no.asc())
             .all()
         )

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from app.db.models import PlanSection, ReviewTask, RuleExecutionLog, TemplateSectionRule
+from app.db.models import PlanDocument, PlanParseResult, PlanSection, ReviewTask, RuleExecutionLog, TemplateSectionRule
 from app.rule_engine.matchers import contains_any, find_section_by_title, normalize_text
 from app.rule_engine.schemas import ReviewIssueCreate, RuleExecutionLogCreate
 
@@ -19,7 +19,13 @@ def run_template_framework_review(task: ReviewTask, db: Session) -> list[ReviewI
     )
     sections = (
         db.query(PlanSection)
-        .filter(PlanSection.document_id == task.plan_document_id)
+        .join(PlanParseResult, PlanParseResult.id == PlanSection.parse_result_id)
+        .join(PlanDocument, PlanDocument.id == PlanSection.document_id)
+        .filter(
+            PlanSection.document_id == task.plan_document_id,
+            PlanParseResult.section_parse_mode == PlanDocument.section_parse_mode,
+            PlanParseResult.parse_status == "parsed",
+        )
         .order_by(PlanSection.sort_no.asc(), PlanSection.id.asc())
         .all()
     )

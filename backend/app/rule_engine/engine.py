@@ -4,7 +4,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from app.db.models import PlanDocument, PlanSection, ReviewIssue, ReviewTask, RuleExecutionLog
+from app.db.models import PlanDocument, PlanParseResult, PlanSection, ReviewIssue, ReviewTask, RuleExecutionLog
 from app.rule_engine.schemas import ReviewIssueCreate
 from app.rule_engine.standard_rule_checker import run_standard_rule_review
 from app.rule_engine.template_checker import run_template_framework_review
@@ -78,7 +78,16 @@ def _load_plan_document(task: ReviewTask, db: Session) -> PlanDocument:
     document = db.query(PlanDocument).filter(PlanDocument.id == task.plan_document_id).first()
     if not document:
         raise PlatformError(f"Plan document id={task.plan_document_id} not found", status_code=404)
-    section_count = db.query(PlanSection).filter(PlanSection.document_id == task.plan_document_id).count()
+    section_count = (
+        db.query(PlanSection)
+        .join(PlanParseResult, PlanParseResult.id == PlanSection.parse_result_id)
+        .filter(
+            PlanSection.document_id == task.plan_document_id,
+            PlanParseResult.section_parse_mode == document.section_parse_mode,
+            PlanParseResult.parse_status == "parsed",
+        )
+        .count()
+    )
     if section_count == 0:
         raise PlatformError("The selected plan document has no parsed sections.", status_code=400)
     return document

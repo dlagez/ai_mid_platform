@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, Numeric, String, Text
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -37,6 +37,7 @@ class PlanDocument(Base):
     document_type: Mapped[str] = mapped_column(String(32), default="template", index=True)
     section_parse_mode: Mapped[str] = mapped_column(String(64), default="docling_auto", index=True)
     parse_status: Mapped[str] = mapped_column(String(32), default="uploaded", index=True)
+    parse_progress: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     sections: Mapped[list["PlanSection"]] = relationship(
@@ -45,6 +46,87 @@ class PlanDocument(Base):
         cascade="all, delete-orphan",
         foreign_keys="PlanSection.document_id",
     )
+    parse_results: Mapped[list["PlanParseResult"]] = relationship(
+        "PlanParseResult",
+        back_populates="document",
+        cascade="all, delete-orphan",
+        foreign_keys="PlanParseResult.document_id",
+    )
+    parse_jobs: Mapped[list["PlanParseJob"]] = relationship(
+        "PlanParseJob",
+        back_populates="document",
+        cascade="all, delete-orphan",
+        foreign_keys="PlanParseJob.document_id",
+    )
+
+
+class PlanParseResult(Base):
+    __tablename__ = "plan_parse_result"
+    __table_args__ = (
+        UniqueConstraint("document_id", "section_parse_mode", name="uq_plan_parse_result_document_mode"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    document_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("plan_document.id", ondelete="CASCADE"),
+        index=True,
+    )
+    section_parse_mode: Mapped[str] = mapped_column(String(64), index=True)
+    parse_status: Mapped[str] = mapped_column(String(32), default="uploaded", index=True)
+    parse_progress: Mapped[int] = mapped_column(Integer, default=0)
+    section_count: Mapped[int] = mapped_column(Integer, default=0)
+    toc_text: Mapped[str] = mapped_column(Text, default="")
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    parsed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    document: Mapped[PlanDocument] = relationship(
+        "PlanDocument",
+        back_populates="parse_results",
+        foreign_keys=[document_id],
+    )
+    sections: Mapped[list["PlanSection"]] = relationship(
+        "PlanSection",
+        back_populates="parse_result",
+        cascade="all, delete-orphan",
+        foreign_keys="PlanSection.parse_result_id",
+    )
+
+
+class PlanParseJob(Base):
+    __tablename__ = "plan_parse_job"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    document_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("plan_document.id", ondelete="CASCADE"),
+        index=True,
+    )
+    parse_result_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("plan_parse_result.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    parser_provider: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    section_parse_mode: Mapped[str] = mapped_column(String(64), index=True)
+    job_type: Mapped[str] = mapped_column(String(32), default="parse", index=True)
+    status: Mapped[str] = mapped_column(String(32), default="queued", index=True)
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    celery_task_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    document: Mapped[PlanDocument] = relationship(
+        "PlanDocument",
+        back_populates="parse_jobs",
+        foreign_keys=[document_id],
+    )
+    parse_result: Mapped[PlanParseResult | None] = relationship("PlanParseResult", foreign_keys=[parse_result_id])
 
 
 class PlanSection(Base):
@@ -54,6 +136,11 @@ class PlanSection(Base):
     document_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey("plan_document.id", ondelete="CASCADE"),
+        index=True,
+    )
+    parse_result_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("plan_parse_result.id", ondelete="CASCADE"),
         index=True,
     )
     parent_id: Mapped[int | None] = mapped_column(
@@ -73,6 +160,11 @@ class PlanSection(Base):
         "PlanDocument",
         back_populates="sections",
         foreign_keys=[document_id],
+    )
+    parse_result: Mapped[PlanParseResult] = relationship(
+        "PlanParseResult",
+        back_populates="sections",
+        foreign_keys=[parse_result_id],
     )
     parent: Mapped["PlanSection | None"] = relationship(
         "PlanSection",
