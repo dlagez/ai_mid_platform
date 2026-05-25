@@ -6,6 +6,7 @@ import {
   Col,
   Divider,
   Empty,
+  Modal,
   Popconfirm,
   Row,
   Space,
@@ -24,6 +25,7 @@ import {
   FileTextOutlined,
   ProfileOutlined,
   ReloadOutlined,
+  SyncOutlined,
 } from "@ant-design/icons";
 import { PdfPreviewModal } from "../components/PdfPreviewModal";
 import {
@@ -62,6 +64,8 @@ const DocumentUploadReviewPage = ({
   const [selectedSection, setSelectedSection] = useState<PlanSection | null>(null);
   const [profileJobs, setProfileJobs] = useState<Record<number, ChapterProfileGenerationJob>>({});
   const [loading, setLoading] = useState({ files: false, upload: false, parse: false, delete: false, profile: false });
+  const [selectedFileId, setSelectedFileId] = useState<number | null>(null);
+  const [parsingFileId, setParsingFileId] = useState<number | null>(null);
   const [pdfPreview, setPdfPreview] = useState({ open: false, title: "", url: "" });
   const enableChapterProfiles = documentType === "construction_plan";
 
