@@ -56,21 +56,23 @@ import {
 } from "../services/documentService";
 import { fetchPdfPreviewUrl } from "../services/filePreviewService";
 
-type DocumentUploadReviewProps = {
+type ParsedDocumentUploadPageProps = {
   documentType: DocumentType;
   title: string;
   uploadCardTitle: string;
   emptyDescription: string;
+  enableChapterProfiles?: boolean;
 };
 
 const DEFAULT_PARSE_CONCURRENCY = 3;
 
-const DocumentUploadReviewPage = ({
+const ParsedDocumentUploadPage = ({
   documentType,
   title,
   uploadCardTitle,
   emptyDescription,
-}: DocumentUploadReviewProps) => {
+  enableChapterProfiles = false,
+}: ParsedDocumentUploadPageProps) => {
   const navigate = useNavigate();
   const [files, setFiles] = useState<DocumentRecord[]>([]);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
@@ -91,7 +93,6 @@ const DocumentUploadReviewPage = ({
     view: false,
   });
   const [pdfPreview, setPdfPreview] = useState({ open: false, title: "", url: "" });
-  const enableChapterProfiles = documentType === "construction_plan";
   const selectedFile = selectedFileId !== null ? files.find((file) => file.id === selectedFileId) ?? null : null;
 
   const refreshFiles = async () => {
@@ -168,7 +169,7 @@ const DocumentUploadReviewPage = ({
     try {
       for (const file of originFiles) {
         await uploadDocument(file, documentType, {
-          sectionParseMode: enableChapterProfiles && file.name.toLowerCase().endsWith(".docx") ? activeParseMode : undefined,
+          sectionParseMode: file.name.toLowerCase().endsWith(".docx") ? activeParseMode : undefined,
         });
       }
       message.success(`${originFiles.length} file(s) uploaded. Parsing started.`);
@@ -336,14 +337,12 @@ const DocumentUploadReviewPage = ({
               >
                 <Button icon={<CloudUploadOutlined />}>Select Document Files</Button>
               </Upload>
-              {enableChapterProfiles ? (
-                <ParseControls
-                  activeParseMode={activeParseMode}
-                  parseConcurrency={parseConcurrency}
-                  onModeChange={(mode) => void handleModeChange(mode)}
-                  onConcurrencyChange={setParseConcurrency}
-                />
-              ) : null}
+              <ParseControls
+                activeParseMode={activeParseMode}
+                parseConcurrency={parseConcurrency}
+                onModeChange={(mode) => void handleModeChange(mode)}
+                onConcurrencyChange={setParseConcurrency}
+              />
               <Button type="primary" loading={loading.upload} onClick={() => void handleUpload()} icon={<CloudUploadOutlined />}>
                 Upload to MinIO
               </Button>
@@ -493,16 +492,14 @@ const DocumentUploadReviewPage = ({
             }
           >
             <ParseProgressPanel jobs={parseJobs} />
-            {enableChapterProfiles ? (
-              <Tabs
-                activeKey={activeParseMode}
-                items={SECTION_PARSE_MODE_OPTIONS.map((item) => ({
-                  key: item.mode,
-                  label: item.label,
-                }))}
-                onChange={(key) => void handleModeChange(key as SectionParseMode)}
-              />
-            ) : null}
+            <Tabs
+              activeKey={activeParseMode}
+              items={SECTION_PARSE_MODE_OPTIONS.map((item) => ({
+                key: item.mode,
+                label: item.label,
+              }))}
+              onChange={(key) => void handleModeChange(key as SectionParseMode)}
+            />
             <Spin spinning={loading.view}>
               {parsed ? (
                 <SectionsViewer parsed={parsed} selectedSection={selectedSection} onSelectSection={setSelectedSection} />
@@ -606,7 +603,7 @@ const SectionsViewer = ({
 };
 
 export const TemplateUploadPage = () => (
-  <DocumentUploadReviewPage
+  <ParsedDocumentUploadPage
     documentType="template"
     title="Upload Templates"
     uploadCardTitle="Upload Template Document"
@@ -615,11 +612,12 @@ export const TemplateUploadPage = () => (
 );
 
 export const ConstructionPlanReviewPage = () => (
-  <DocumentUploadReviewPage
+  <ParsedDocumentUploadPage
     documentType="construction_plan"
     title="Upload Construction Plan"
     uploadCardTitle="Upload Construction Plan Document"
     emptyDescription="Click a document row on the left to view its parsed sections here."
+    enableChapterProfiles
   />
 );
 

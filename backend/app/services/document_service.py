@@ -365,7 +365,7 @@ class DocumentService:
         section_parse_mode: str | None,
     ) -> list[ParsedSection]:
         suffix = os.path.splitext(record.file_name)[1].lower()
-        if record.document_type == "construction_plan" and suffix == ".docx":
+        if suffix == ".docx":
             return parse_construction_plan_sections(
                 file_path,
                 record.file_name,
