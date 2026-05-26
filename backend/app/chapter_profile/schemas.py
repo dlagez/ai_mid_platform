@@ -43,6 +43,7 @@ class ChapterProfileGenerationJobRead(BaseModel):
     id: int
     document_id: int
     task_id: int | None
+    section_parse_mode: str
     status: str
     total_sections: int
     processed_sections: int

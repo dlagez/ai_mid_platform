@@ -79,7 +79,7 @@ const ParsedDocumentUploadPage = ({
   const [parsed, setParsed] = useState<DocumentParseResult | null>(null);
   const [parseJobs, setParseJobs] = useState<ParseJobRecord[]>([]);
   const [selectedSection, setSelectedSection] = useState<PlanSection | null>(null);
-  const [profileJobs, setProfileJobs] = useState<Record<number, ChapterProfileGenerationJob>>({});
+  const [profileJobs, setProfileJobs] = useState<Record<string, ChapterProfileGenerationJob>>({});
   const [selectedFileId, setSelectedFileId] = useState<number | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   const [activeParseMode, setActiveParseMode] = useState<SectionParseMode>("docling_auto");
@@ -124,10 +124,11 @@ const ParsedDocumentUploadPage = ({
     }
     try {
       const result = await listChapterProfileJobs({ page: 1, page_size: 200 });
-      const latest: Record<number, ChapterProfileGenerationJob> = {};
+      const latest: Record<string, ChapterProfileGenerationJob> = {};
       for (const job of result.items) {
-        if (!latest[job.document_id]) {
-          latest[job.document_id] = job;
+        const key = getProfileJobKey(job.document_id, job.section_parse_mode);
+        if (!latest[key]) {
+          latest[key] = job;
         }
       }
       setProfileJobs(latest);
@@ -141,6 +142,23 @@ const ParsedDocumentUploadPage = ({
     void refreshParseJobs();
     void refreshProfileJobs();
   }, []);
+
+  useEffect(() => {
+    if (!files.length) {
+      if (selectedFileId !== null) {
+        setSelectedFileId(null);
+        setParsed(null);
+        setSelectedSection(null);
+      }
+      return;
+    }
+    if (selectedFileId !== null && files.some((file) => file.id === selectedFileId)) {
+      return;
+    }
+    const firstFile = files[0];
+    setSelectedFileId(firstFile.id);
+    void handleView(firstFile.id, activeParseMode, { silent: true });
+  }, [files, selectedFileId, activeParseMode]);
 
   useEffect(() => {
     const hasRunningParseJob = parseJobs.some((job) => job.status === "queued" || job.status === "running");
@@ -304,7 +322,7 @@ const ParsedDocumentUploadPage = ({
     }
     setLoading((s) => ({ ...s, profile: true }));
     try {
-      const job = await createChapterProfileJob(record.id);
+      const job = await createChapterProfileJob(record.id, activeParseMode);
       message.success(`Chapter profile job #${job.id} queued.`);
       await refreshProfileJobs();
       navigate(`/construction-plan/profile-jobs/${job.id}`);
@@ -420,6 +438,7 @@ const ParsedDocumentUploadPage = ({
                   render: (_, record) => {
                     const result = findParseResult(record, activeParseMode);
                     const running = isParseRunning(record.id, activeParseMode, parseJobs);
+                    const profileJob = profileJobs[getProfileJobKey(record.id, activeParseMode)];
                     return (
                       <Space size={6} wrap onClick={(e) => e.stopPropagation()}>
                         <Button
@@ -442,17 +461,17 @@ const ParsedDocumentUploadPage = ({
                             >
                               Profile
                             </Button>
-                            {profileJobs[record.id] ? (
+                            {profileJob ? (
                               <Button
                                 size="small"
                                 type="link"
                                 className="table-link-button"
-                                onClick={() => navigate(`/construction-plan/profile-jobs/${profileJobs[record.id].id}`)}
+                                onClick={() => navigate(`/construction-plan/profile-jobs/${profileJob.id}`)}
                               >
                                 <Space size={4}>
-                                  <ProfileStatusTag status={profileJobs[record.id].status} />
+                                  <ProfileStatusTag status={profileJob.status} />
                                   <span>
-                                    {profileJobs[record.id].processed_sections}/{profileJobs[record.id].total_sections}
+                                    {profileJob.processed_sections}/{profileJob.total_sections}
                                   </span>
                                 </Space>
                               </Button>
@@ -648,6 +667,8 @@ const findParseResult = (record: DocumentRecord, mode: SectionParseMode): ParseR
 
 const isParseRunning = (documentId: number, mode: SectionParseMode, jobs: ParseJobRecord[]) =>
   jobs.some((job) => job.document_id === documentId && job.section_parse_mode === mode && (job.status === "queued" || job.status === "running"));
+
+const getProfileJobKey = (documentId: number, mode: SectionParseMode) => `${documentId}:${mode}`;
 
 const ResultSummaryTag = ({ record }: { record: DocumentRecord }) => {
   const parsedCount = record.parse_results.filter((result) => result.parse_status === "parsed").length;

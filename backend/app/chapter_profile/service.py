@@ -18,6 +18,7 @@ from app.db.models import (
     PlanSection,
     ReviewTask,
 )
+from app.parsers.section_parse_strategies import DEFAULT_SECTION_PARSE_MODE, resolve_section_parse_mode
 from app.services.model_service import ModelService
 from app.utils.exceptions import PlatformError
 
@@ -85,15 +86,31 @@ class ChapterProfileService:
         self._ensure_construction_plan_document(db, document_id)
         return await self._build_profiles_for_document(db, document_id=document_id, task_id=None)
 
-    def create_generation_job(self, db: Session, document_id: int, created_by: int | None = None) -> ChapterProfileGenerationJob:
+    def create_generation_job(
+        self,
+        db: Session,
+        document_id: int,
+        section_parse_mode: str | None = None,
+        created_by: int | None = None,
+    ) -> ChapterProfileGenerationJob:
         document = self._ensure_construction_plan_document(db, document_id)
+        mode = resolve_section_parse_mode(section_parse_mode or document.section_parse_mode or DEFAULT_SECTION_PARSE_MODE)
+        result = (
+            db.query(PlanParseResult)
+            .filter(
+                PlanParseResult.document_id == document.id,
+                PlanParseResult.section_parse_mode == mode,
+                PlanParseResult.parse_status == "parsed",
+            )
+            .first()
+        )
+        if not result:
+            raise PlatformError(f"The document has no parsed sections for section_parse_mode={mode}.", status_code=400)
         sections = (
             db.query(PlanSection)
-            .join(PlanParseResult, PlanParseResult.id == PlanSection.parse_result_id)
             .filter(
                 PlanSection.document_id == document.id,
-                PlanParseResult.section_parse_mode == document.section_parse_mode,
-                PlanParseResult.parse_status == "parsed",
+                PlanSection.parse_result_id == result.id,
             )
             .order_by(PlanSection.sort_no.asc(), PlanSection.id.asc())
             .all()
@@ -104,6 +121,7 @@ class ChapterProfileService:
         section_map = {section.id: section for section in sections}
         job = ChapterProfileGenerationJob(
             document_id=document.id,
+            section_parse_mode=mode,
             status="queued",
             total_sections=len(sections),
             created_by=created_by,
@@ -194,26 +212,30 @@ class ChapterProfileService:
         db.commit()
 
         try:
-            sections = (
-                db.query(PlanSection)
-                .join(PlanParseResult, PlanParseResult.id == PlanSection.parse_result_id)
-                .join(PlanDocument, PlanDocument.id == PlanSection.document_id)
-                .filter(
-                    PlanSection.document_id == job.document_id,
-                    PlanParseResult.section_parse_mode == PlanDocument.section_parse_mode,
-                    PlanParseResult.parse_status == "parsed",
-                )
-                .order_by(PlanSection.sort_no.asc(), PlanSection.id.asc())
-                .all()
-            )
-            section_map = {section.id: section for section in sections}
-            section_by_id = {section.id: section for section in sections}
             items = (
                 db.query(ChapterProfileGenerationItem)
                 .filter(ChapterProfileGenerationItem.job_id == job.id)
                 .order_by(ChapterProfileGenerationItem.id.asc())
                 .all()
             )
+            section_ids = [item.section_id for item in items if item.section_id is not None]
+            if section_ids:
+                sections = (
+                    db.query(PlanSection)
+                    .join(PlanParseResult, PlanParseResult.id == PlanSection.parse_result_id)
+                    .filter(
+                        PlanSection.document_id == job.document_id,
+                        PlanSection.id.in_(section_ids),
+                        PlanParseResult.section_parse_mode == job.section_parse_mode,
+                        PlanParseResult.parse_status == "parsed",
+                    )
+                    .order_by(PlanSection.sort_no.asc(), PlanSection.id.asc())
+                    .all()
+                )
+            else:
+                sections = []
+            section_map = {section.id: section for section in sections}
+            section_by_id = {section.id: section for section in sections}
             for item in items:
                 if item.status == "success":
                     continue
@@ -410,8 +432,6 @@ class ChapterProfileService:
             raise PlatformError(f"Document id={document_id} not found", status_code=404)
         if document.document_type != "construction_plan":
             raise PlatformError("Chapter profiles can only be generated for construction plan documents.", status_code=400)
-        if document.parse_status != "parsed":
-            raise PlatformError("Document must be parsed before generating chapter profiles.", status_code=400)
         return document
 
     def _refresh_generation_job_summary(self, db: Session, job: ChapterProfileGenerationJob) -> None:

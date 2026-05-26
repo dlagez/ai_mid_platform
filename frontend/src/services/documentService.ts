@@ -102,6 +102,7 @@ export type ChapterProfileGenerationJob = {
   id: number;
   document_id: number;
   task_id: number | null;
+  section_parse_mode: SectionParseMode;
   status: string;
   total_sections: number;
   processed_sections: number;
@@ -217,9 +218,13 @@ export const getDocumentSections = async (id: number, sectionParseMode?: Section
   return data;
 };
 
-export const createChapterProfileJob = async (documentId: number) => {
+export const createChapterProfileJob = async (documentId: number, sectionParseMode?: SectionParseMode) => {
   const { data } = await apiClient.post<{ job: ChapterProfileGenerationJob }>(
     `/documents/${documentId}/chapter-profile-jobs`,
+    null,
+    {
+      params: sectionParseMode ? { section_parse_mode: sectionParseMode } : undefined,
+    },
   );
   return data.job;
 };
