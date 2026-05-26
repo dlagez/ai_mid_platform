@@ -12,6 +12,7 @@ SECTION_PARSE_MODES = frozenset(
     {
         "docling_auto",
         "docling_toc_outline",
+        "python_docx",
         "word_native",
     }
 )
@@ -64,9 +65,21 @@ class WordNativeSectionParseStrategy:
         return parse_word_sections(file_path)
 
 
+class PythonDocxSectionParseStrategy:
+    """python-docx: heading styles + numbered fallback; removes TOC paragraphs/region."""
+
+    name = "python_docx"
+
+    def parse_sections(self, file_path: str, file_name: str) -> list[ParsedSection]:
+        from app.parsers.python_docx import parse_python_docx_sections
+
+        return parse_python_docx_sections(file_path, file_name)
+
+
 _STRATEGY_BY_MODE: dict[str, SectionParseStrategy] = {
     DoclingAutoSectionParseStrategy.name: DoclingAutoSectionParseStrategy(),
     DoclingTocOutlineSectionParseStrategy.name: DoclingTocOutlineSectionParseStrategy(),
+    PythonDocxSectionParseStrategy.name: PythonDocxSectionParseStrategy(),
     WordNativeSectionParseStrategy.name: WordNativeSectionParseStrategy(),
 }
 

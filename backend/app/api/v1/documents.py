@@ -348,7 +348,10 @@ async def get_document_sections(
     record = db.query(PlanDocument).filter(PlanDocument.id == record_id).first()
     if not record:
         raise PlatformError(f"Document id={record_id} not found", status_code=404)
-    result, sections = service.get_sections(db, record_id, section_parse_mode or record.section_parse_mode)
+    try:
+        result, sections = service.get_sections(db, record_id, section_parse_mode or record.section_parse_mode)
+    except ParserConfigError as exc:
+        raise PlatformError(str(exc), status_code=400) from exc
     return _to_document_parse_response(record, result, sections, section_parse_mode or record.section_parse_mode)
 
 
@@ -474,6 +477,10 @@ def _section_parse_mode_item(mode: str) -> SectionParseModeItem:
         "docling_toc_outline": (
             "Docling 目录大纲分章",
             "Docling 转 Markdown，识别目录/目次并与正文标题匹配后填充章节内容。",
+        ),
+        "python_docx": (
+            "python-docx 分章",
+            "使用 python-docx 读取 Word 段落和标题样式，跳过目录段落和目录区域。",
         ),
         "word_native": (
             "Word 原生分章",

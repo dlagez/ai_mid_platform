@@ -150,6 +150,10 @@ def parse_sections_with_strategy(
         if sections:
             return sections
 
+    # Strip TOC region for linear scan to avoid duplicate sections
+    if not use_toc_outline and strategy == "auto":
+        markdown = _strip_toc_region(markdown)
+
     roots: list[ParsedSection] = []
     stack: list[ParsedSection] = []
     body_lines_before_first_heading: list[str] = []
@@ -220,6 +224,92 @@ def _parse_sections_from_toc_outline(
         return roots
 
     return []
+
+
+def _strip_toc_region(markdown: str) -> str:
+    """Remove the entire TOC region from markdown so the linear scan doesn't create duplicate sections.
+
+    Two complementary signals determine TOC boundaries:
+    1. **Blank-line gap** — 3+ consecutive blank lines after at least one TOC heading,
+       or 8+ regardless, marks the page-break between TOC and body.
+    2. **Duplicate headings** — when the same heading title appears twice in the
+       document, the first occurrence is from the TOC, the second from the body.
+
+    Either signal alone is sufficient; both together give the highest confidence.
+    """
+    original_lines = markdown.splitlines()
+    cleaned = [clean_section_line(line) for line in original_lines]
+
+    # --- locate the TOC label ("目录" / "目次") ---
+    toc_line_index = None
+    for i, line in enumerate(cleaned):
+        if line and _is_toc_label(line):
+            toc_line_index = i
+            break
+    if toc_line_index is None:
+        return markdown
+
+    outline_parser = AutoSectionStrategy()
+
+    # --- walk ORIGINAL lines after the TOC label ---
+    # blank lines are preserved so we can detect the page-break gap.
+    region_end = toc_line_index
+    gap_count = 0
+    heading_count = 0
+    gap_break = False
+
+    for index in range(toc_line_index + 1, len(cleaned)):
+        line = cleaned[index]
+        if not line:
+            gap_count += 1
+            if gap_count >= 8:
+                break
+            if gap_count >= 3 and heading_count > 0:
+                gap_break = True
+                break
+            continue
+
+        gap_count = 0
+
+        if _is_contents_label(line):
+            region_end = index
+            break
+        if _is_toc_label(line):
+            continue
+
+        heading = _detect_heading(outline_parser, line)
+        if heading:
+            heading_count += 1
+            region_end = index
+
+    # --- duplicate-heading detection (works even without blank-line gap) ---
+    # Normalize titles so "1 工程概况..........1" matches "1 工程概况"
+    heading_indexes: list[tuple[int, str]] = []
+    for index in range(toc_line_index + 1, len(cleaned)):
+        line = cleaned[index]
+        if not line:
+            continue
+        heading = _detect_heading(outline_parser, line)
+        if heading:
+            heading_indexes.append((index, _normalize_heading_text(heading.title)))
+
+    title_occurrences: dict[str, list[int]] = {}
+    for index, normalized_title in heading_indexes:
+        title_occurrences.setdefault(normalized_title, []).append(index)
+
+    remove_indexes: set[int] = {toc_line_index}
+    if gap_break or heading_count == 0:
+        # Gap detected (or no headings after TOC): strip entire region
+        for i in range(toc_line_index, region_end + 1):
+            remove_indexes.add(i)
+    else:
+        # No gap — fall back to removing only duplicate headings (first occurrence)
+        for title, indexes in title_occurrences.items():
+            if len(indexes) > 1:
+                remove_indexes.add(indexes[0])
+
+    kept = [line for i, line in enumerate(cleaned) if i not in remove_indexes]
+    return "\n".join(kept)
 
 
 def get_section_rebuild_strategy(
@@ -310,7 +400,7 @@ def _collect_body_headings(
 
 
 def _strip_markdown_heading_prefix(line: str) -> str:
-    return re.sub(r"^#{1,6}\s*", "", line).strip()
+    return re.sub(r"^#+\s*", "", line).strip()
 
 
 def _build_tree_from_heading_rows(
@@ -403,6 +493,8 @@ def _remove_section_no(text: str, section_no: str) -> str:
 
 def _is_toc_label(line: str) -> bool:
     text = _strip_markdown_heading_prefix(line).strip().replace(" ", "")
+    # Strip leading number + separator: "1目录", "1目次", "1.目录" etc.
+    text = re.sub(r"^\d+[.．、]?\s*", "", text)
     return text in {"目录", "目次"}
 
 

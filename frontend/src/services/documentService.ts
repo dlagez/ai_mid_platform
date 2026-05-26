@@ -1,6 +1,6 @@
 import { apiClient } from "./apiClient";
 
-export type SectionParseMode = "docling_auto" | "docling_toc_outline" | "word_native";
+export type SectionParseMode = "docling_auto" | "docling_toc_outline" | "python_docx" | "word_native";
 
 export type SectionParseModeItem = {
   mode: SectionParseMode;
@@ -19,6 +19,11 @@ export const SECTION_PARSE_MODE_OPTIONS: SectionParseModeItem[] = [
     mode: "docling_toc_outline",
     label: "Docling 目录大纲分章",
     description: "Docling 转 Markdown，识别目录/目次并与正文标题匹配后填充章节内容。",
+  },
+  {
+    mode: "python_docx",
+    label: "python-docx 分章",
+    description: "使用 python-docx 读取 Word 段落和标题样式，跳过目录段落和目录区域。",
   },
   {
     mode: "word_native",
