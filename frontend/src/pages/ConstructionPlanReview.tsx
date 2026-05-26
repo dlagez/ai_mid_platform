@@ -126,7 +126,7 @@ const ParsedDocumentUploadPage = ({
       const result = await listChapterProfileJobs({ page: 1, page_size: 200 });
       const latest: Record<string, ChapterProfileGenerationJob> = {};
       for (const job of result.items) {
-        const key = getProfileJobKey(job.document_id, job.section_parse_mode);
+        const key = getProfileJobKey(job.document_id);
         if (!latest[key]) {
           latest[key] = job;
         }
@@ -159,23 +159,6 @@ const ParsedDocumentUploadPage = ({
     setSelectedFileId(firstFile.id);
     void handleView(firstFile.id, activeParseMode, { silent: true });
   }, [files, selectedFileId, activeParseMode]);
-
-  useEffect(() => {
-    const hasRunningParseJob = parseJobs.some((job) => job.status === "queued" || job.status === "running");
-    const hasRunningProfileJob = Object.values(profileJobs).some((job) => job.status === "queued" || job.status === "running");
-    if (!hasRunningParseJob && !hasRunningProfileJob) {
-      return undefined;
-    }
-    const timer = window.setInterval(() => {
-      void refreshFiles();
-      void refreshParseJobs();
-      void refreshProfileJobs();
-      if (selectedFileId !== null) {
-        void handleView(selectedFileId, activeParseMode, { silent: true });
-      }
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [parseJobs, profileJobs, selectedFileId, activeParseMode]);
 
   const handleUpload = async () => {
     const originFiles = fileList.map((item) => item.originFileObj).filter(Boolean) as File[];
@@ -337,7 +320,11 @@ const ParsedDocumentUploadPage = ({
     <div className="page">
       <div className="page-heading">
         <h1>{title}</h1>
-        <Button icon={<ReloadOutlined />} loading={loading.files} onClick={() => void Promise.all([refreshFiles(), refreshParseJobs()])}>
+        <Button
+          icon={<ReloadOutlined />}
+          loading={loading.files}
+          onClick={() => void Promise.all([refreshFiles(), refreshParseJobs(), refreshProfileJobs()])}
+        >
           Refresh
         </Button>
       </div>
@@ -438,7 +425,7 @@ const ParsedDocumentUploadPage = ({
                   render: (_, record) => {
                     const result = findParseResult(record, activeParseMode);
                     const running = isParseRunning(record.id, activeParseMode, parseJobs);
-                    const profileJob = profileJobs[getProfileJobKey(record.id, activeParseMode)];
+                    const profileJob = profileJobs[getProfileJobKey(record.id)];
                     return (
                       <Space size={6} wrap onClick={(e) => e.stopPropagation()}>
                         <Button
@@ -466,6 +453,7 @@ const ParsedDocumentUploadPage = ({
                                 size="small"
                                 type="link"
                                 className="table-link-button"
+                                title="Profile queue"
                                 onClick={() => navigate(`/construction-plan/profile-jobs/${profileJob.id}`)}
                               >
                                 <Space size={4}>
@@ -668,7 +656,7 @@ const findParseResult = (record: DocumentRecord, mode: SectionParseMode): ParseR
 const isParseRunning = (documentId: number, mode: SectionParseMode, jobs: ParseJobRecord[]) =>
   jobs.some((job) => job.document_id === documentId && job.section_parse_mode === mode && (job.status === "queued" || job.status === "running"));
 
-const getProfileJobKey = (documentId: number, mode: SectionParseMode) => `${documentId}:${mode}`;
+const getProfileJobKey = (documentId: number) => String(documentId);
 
 const ResultSummaryTag = ({ record }: { record: DocumentRecord }) => {
   const parsedCount = record.parse_results.filter((result) => result.parse_status === "parsed").length;

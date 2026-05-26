@@ -13,6 +13,7 @@ from app.chapter_profile.schemas import (
     ChapterProfileGenerationItemList,
     ChapterProfileGenerationJobList,
     ChapterProfileGenerationJobRead,
+    ChapterReviewProfileList,
     CreateChapterProfileGenerationJobResponse,
 )
 from app.chapter_profile.service import ChapterProfileService, get_chapter_profile_service
@@ -244,6 +245,24 @@ async def list_chapter_profile_job_items(
         page_size=page_size,
     )
     return ChapterProfileGenerationItemList(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.get("/chapter-profile-jobs/{job_id}/profiles", response_model=ChapterReviewProfileList)
+async def list_chapter_profile_job_profiles(
+    job_id: int,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    profile_service: Annotated[ChapterProfileService, Depends(get_chapter_profile_service)],
+    db: Annotated[Session, Depends(get_db)],
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=500),
+) -> ChapterReviewProfileList:
+    items, total = profile_service.list_generation_profiles(
+        db,
+        job_id=job_id,
+        page=page,
+        page_size=page_size,
+    )
+    return ChapterReviewProfileList(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.get("/parse-jobs/list", response_model=list[ParseJobItem])

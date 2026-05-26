@@ -41,6 +41,7 @@ import { ModelCallPage } from "./pages/ModelCall";
 import { OpenKBPage } from "./pages/OpenKB";
 import { TaskListPage } from "./pages/TaskList";
 import { ConstructionPlanReviewPage, TemplateUploadPage } from "./pages/ConstructionPlanReview";
+import { ChapterProfileJobsPage } from "./pages/ChapterProfileJobs";
 import { ChapterProfileJobDetailPage } from "./pages/ChapterProfileJobDetail";
 import { UtilsPPOcrPage } from "./pages/UtilsPPOcr";
 import { ReviewTemplateListPage } from "./pages/ReviewTemplateList";
@@ -82,6 +83,11 @@ const resources = [
     name: "construction-plan",
     list: "/construction-plan",
     meta: { label: "Upload Construction Plan", icon: <FileSearchOutlined />, parent: "construction-review" },
+  },
+  {
+    name: "construction-plan-profile-jobs",
+    list: "/construction-plan/profile-jobs",
+    meta: { label: "Profile Parsing", icon: <NodeIndexOutlined />, parent: "construction-review" },
   },
   {
     name: "upload-templates",
@@ -173,6 +179,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                 <Route path="/openkb" element={<OpenKBPage />} />
                 <Route path="/upload-templates" element={<TemplateUploadPage />} />
                 <Route path="/construction-plan" element={<ConstructionPlanReviewPage />} />
+                <Route path="/construction-plan/profile-jobs" element={<ChapterProfileJobsPage />} />
                 <Route path="/construction-plan/profile-jobs/:id" element={<ChapterProfileJobDetailPage />} />
                 <Route path="/review-templates" element={<ReviewTemplateListPage />} />
                 <Route path="/review-templates/:id" element={<ReviewTemplateEditPage />} />

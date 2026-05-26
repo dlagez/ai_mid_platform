@@ -636,7 +636,6 @@ class ChapterProfileGenerationJob(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     document_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("plan_document.id", ondelete="CASCADE"), index=True)
     task_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("review_task.id", ondelete="SET NULL"), nullable=True, index=True)
-    section_parse_mode: Mapped[str] = mapped_column(String(64), default="docling_auto", index=True)
     status: Mapped[str] = mapped_column(String(50), default="queued", index=True)
     total_sections: Mapped[int] = mapped_column(Integer, default=0)
     processed_sections: Mapped[int] = mapped_column(Integer, default=0)

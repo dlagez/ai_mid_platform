@@ -121,7 +121,6 @@ class ChapterProfileService:
         section_map = {section.id: section for section in sections}
         job = ChapterProfileGenerationJob(
             document_id=document.id,
-            section_parse_mode=mode,
             status="queued",
             total_sections=len(sections),
             created_by=created_by,
@@ -201,6 +200,29 @@ class ChapterProfileService:
         )
         return items, total
 
+    def list_generation_profiles(
+        self,
+        db: Session,
+        *,
+        job_id: int,
+        page: int = 1,
+        page_size: int = 100,
+    ) -> tuple[list[ChapterReviewProfile], int]:
+        self.get_generation_job(db, job_id)
+        query = (
+            db.query(ChapterReviewProfile)
+            .join(ChapterProfileGenerationItem, ChapterProfileGenerationItem.profile_id == ChapterReviewProfile.id)
+            .filter(ChapterProfileGenerationItem.job_id == job_id)
+        )
+        total = query.count()
+        items = (
+            query.order_by(ChapterProfileGenerationItem.id.asc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+        return items, total
+
     async def run_generation_job(self, db: Session, job_id: int) -> dict[str, Any]:
         job = self.get_generation_job(db, job_id)
         if job.status in {"success", "partial_success", "failed"}:
@@ -226,7 +248,6 @@ class ChapterProfileService:
                     .filter(
                         PlanSection.document_id == job.document_id,
                         PlanSection.id.in_(section_ids),
-                        PlanParseResult.section_parse_mode == job.section_parse_mode,
                         PlanParseResult.parse_status == "parsed",
                     )
                     .order_by(PlanSection.sort_no.asc(), PlanSection.id.asc())
