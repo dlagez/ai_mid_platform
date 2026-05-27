@@ -23,6 +23,7 @@ from app.review_checkpoints.schemas import (
 )
 from app.services.model_service import ModelService
 from app.utils.exceptions import PlatformError
+from app.utils.langfuse import langfuse_observation, update_langfuse_observation
 
 
 CHECKPOINT_TYPES = {
@@ -331,6 +332,7 @@ class ReviewCheckpointService:
                         standard,
                         clause,
                         use_llm=job.use_llm,
+                        job_id=job.id,
                         serial_offset=job.created_count + 1,
                     )
                     item.checkpoint_ids = checkpoint_ids
@@ -414,9 +416,10 @@ class ReviewCheckpointService:
         clause: StandardClause,
         *,
         use_llm: bool,
+        job_id: int | None = None,
         serial_offset: int = 1,
     ) -> tuple[list[int], str | None]:
-        extracted = await self._extract_checkpoints(standard, clause, use_llm=use_llm)
+        extracted = await self._extract_checkpoints(standard, clause, use_llm=use_llm, job_id=job_id)
         checkpoint_payloads = extracted if isinstance(extracted, list) else extracted.get("checkpoints", [])
         if not checkpoint_payloads:
             return [], "no checkpoint generated"
@@ -500,30 +503,68 @@ class ReviewCheckpointService:
         clause: StandardClause,
         *,
         use_llm: bool,
+        job_id: int | None = None,
     ) -> dict[str, Any] | list[dict[str, Any]]:
         if not use_llm:
             return {"checkpoints": self._heuristic_checkpoints(clause)}
 
         model_service = ModelService()
-        result = await model_service.call_model(
-            {
-                "model": model_service.default_model,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": CHECKPOINT_PROMPT.format(
-                            standard_name=standard.standard_name if standard else "",
-                            clause_no=clause.clause_no or "",
-                            clause_content=clause.content or "",
-                        ),
-                    }
-                ],
-                "temperature": 0.1,
-                "max_tokens": 1800,
-            }
+        prompt = CHECKPOINT_PROMPT.format(
+            standard_name=standard.standard_name if standard else "",
+            clause_no=clause.clause_no or "",
+            clause_content=clause.content or "",
         )
-        content = ((result.get("output") or {}).get("content") or "").strip()
-        return _parse_json(content)
+        payload = {
+            "model": model_service.default_model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
+            "temperature": 0.1,
+            "max_tokens": 1800,
+        }
+        metadata = {
+            "operation": "checkpoint_generation.extract",
+            "job_id": job_id,
+            "standard_id": clause.standard_id,
+            "standard_name": standard.standard_name if standard else None,
+            "clause_id": clause.id,
+            "clause_no": clause.clause_no,
+            "clause_title": clause.title,
+            "clause_chars": len(clause.content or ""),
+            "use_llm": use_llm,
+        }
+        with langfuse_observation(
+            name="checkpoint_generation.extract",
+            input_data={"messages": payload["messages"]},
+            metadata=metadata,
+            session_id=(
+                f"checkpoint-generation-job:{job_id}"
+                if job_id
+                else f"checkpoint-generation-standard:{clause.standard_id}"
+            ),
+            tags=["checkpoint_generation", "llm"],
+            as_type="generation",
+            model=model_service.default_model,
+        ) as observation:
+            result = await model_service.call_model(payload)
+            content = ((result.get("output") or {}).get("content") or "").strip()
+            parsed = _parse_json(content)
+            checkpoint_payloads = parsed if isinstance(parsed, list) else parsed.get("checkpoints", [])
+            update_langfuse_observation(
+                observation,
+                output={"content": content},
+                metadata=metadata
+                | {
+                    "output_chars": len(content),
+                    "generated_checkpoint_count": (
+                        len(checkpoint_payloads) if isinstance(checkpoint_payloads, list) else 0
+                    ),
+                },
+            )
+        return parsed
 
     def _heuristic_checkpoints(self, clause: StandardClause) -> list[dict[str, Any]]:
         content = clause.content or ""
