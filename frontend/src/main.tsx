@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter, Outlet, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { Refine, Authenticated } from "@refinedev/core";
 import {
   ErrorComponent,
@@ -47,7 +47,6 @@ import { UtilsPPOcrPage } from "./pages/UtilsPPOcr";
 import { ReviewTemplateListPage } from "./pages/ReviewTemplateList";
 import { ReviewTemplateEditPage } from "./pages/ReviewTemplateEdit";
 import { TemplateSectionRulesPage } from "./pages/TemplateSectionRules";
-import { StandardsListPage } from "./pages/StandardsList";
 import { StandardClausesPage } from "./pages/StandardClauses";
 import { CheckpointGenerationJobsPage } from "./pages/CheckpointGenerationJobs";
 import { ReviewCheckpointsPage } from "./pages/ReviewCheckpoints";
@@ -100,14 +99,9 @@ const resources = [
     meta: { label: "Templates Rules", icon: <SnippetsOutlined />, parent: "construction-review" },
   },
   {
-    name: "standards",
-    list: "/standards",
-    meta: { label: "Standards Library", icon: <BookOutlined />, parent: "construction-review" },
-  },
-  {
     name: "checkpoint-generation",
     list: "/standards/checkpoint-generation",
-    meta: { label: "Checkpoint Generation", icon: <NodeIndexOutlined />, parent: "construction-review" },
+    meta: { label: "Checkpoint Generation", icon: <BookOutlined />, parent: "construction-review" },
   },
   {
     name: "review-checkpoints",
@@ -184,7 +178,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                 <Route path="/review-templates" element={<ReviewTemplateListPage />} />
                 <Route path="/review-templates/:id" element={<ReviewTemplateEditPage />} />
                 <Route path="/review-templates/:id/section-rules" element={<TemplateSectionRulesPage />} />
-                <Route path="/standards" element={<StandardsListPage />} />
+                <Route path="/standards" element={<Navigate to="/standards/checkpoint-generation" replace />} />
                 <Route path="/standards/checkpoint-generation" element={<CheckpointGenerationJobsPage />} />
                 <Route path="/standards/:id/clauses" element={<StandardClausesPage />} />
                 <Route path="/review-checkpoints" element={<ReviewCheckpointsPage />} />
