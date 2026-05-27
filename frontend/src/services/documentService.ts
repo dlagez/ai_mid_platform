@@ -292,6 +292,17 @@ export const getChapterProfileJob = async (jobId: number) => {
   return data;
 };
 
+export const restartChapterProfileJob = async (jobId: number, concurrency?: number) => {
+  const { data } = await apiClient.post<{ job: ChapterProfileGenerationJob }>(
+    `/documents/chapter-profile-jobs/${jobId}/restart`,
+    null,
+    {
+      params: concurrency ? { concurrency } : undefined,
+    },
+  );
+  return data.job;
+};
+
 export const listChapterProfileJobItems = async (
   jobId: number,
   query: { status?: string; page?: number; page_size?: number } = {},

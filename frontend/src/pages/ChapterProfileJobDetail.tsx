@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeftOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, PlayCircleOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import { Button, Card, Descriptions, Form, Input, Modal, Progress, Select, Space, Table, Tag, Typography, message } from "antd";
 import type { TablePaginationConfig } from "antd";
 import {
   getChapterProfileJob,
   listChapterProfileJobItems,
   listChapterProfileJobProfiles,
+  restartChapterProfileJob,
   type ChapterProfileGenerationItem,
   type ChapterProfileGenerationJob,
   type ChapterReviewProfile,
@@ -58,6 +59,7 @@ export const ChapterProfileJobDetailPage = () => {
   const [editingProfile, setEditingProfile] = useState<ChapterReviewProfile | null>(null);
   const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const [filterForm] = Form.useForm<ProfileFilterValues>();
   const [profileForm] = Form.useForm<ProfileFormValues>();
 
@@ -116,6 +118,22 @@ export const ChapterProfileJobDetailPage = () => {
     profileForm.setFieldsValue(toProfileFormValues(profile));
   };
 
+  const handleRestart = async () => {
+    if (!job) {
+      return;
+    }
+    setRestarting(true);
+    try {
+      await restartChapterProfileJob(job.id);
+      message.success(`Chapter profile job #${job.id} restarted.`);
+      await load();
+    } catch {
+      message.error("Failed to restart chapter profile job.");
+    } finally {
+      setRestarting(false);
+    }
+  };
+
   return (
     <div className="page">
       <div className="page-heading">
@@ -123,6 +141,14 @@ export const ChapterProfileJobDetailPage = () => {
         <Space>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/construction-plan/profile-jobs")}>
             Back
+          </Button>
+          <Button
+            icon={<PlayCircleOutlined />}
+            loading={restarting}
+            disabled={!job || !canRestartProfileJob(job)}
+            onClick={() => void handleRestart()}
+          >
+            Restart
           </Button>
           <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>
             Reload
@@ -541,6 +567,10 @@ const StatusTag = ({ status }: { status: string }) => {
     status === "success" ? "green" : status === "partial_success" || status === "rule_only" ? "gold" : status === "failed" ? "red" : "blue";
   return <Tag color={color}>{status}</Tag>;
 };
+
+const canRestartProfileJob = (job: ChapterProfileGenerationJob) =>
+  ["queued", "running", "failed", "partial_success"].includes(job.status) &&
+  (job.processed_sections < job.total_sections || job.failed_count > 0);
 
 const formatDate = (value: string | null) => (value ? new Date(value).toLocaleString() : "-");
 

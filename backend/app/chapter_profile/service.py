@@ -190,6 +190,53 @@ class ChapterProfileService:
             raise PlatformError(f"Chapter profile generation job id={job_id} not found", status_code=404)
         return job
 
+    def restart_generation_job(
+        self,
+        db: Session,
+        job_id: int,
+        concurrency: int = 3,
+    ) -> ChapterProfileGenerationJob:
+        job = self.get_generation_job(db, job_id)
+        retryable_statuses = {"queued", "running", "failed"}
+        items = (
+            db.query(ChapterProfileGenerationItem)
+            .filter(
+                ChapterProfileGenerationItem.job_id == job.id,
+                ChapterProfileGenerationItem.status.in_(retryable_statuses),
+            )
+            .all()
+        )
+        if not items:
+            raise PlatformError("This chapter profile job has no unfinished or failed sections to restart.", status_code=400)
+
+        now = datetime.utcnow()
+        for item in items:
+            item.status = "queued"
+            item.profile_id = None
+            item.used_llm = False
+            item.confidence = None
+            item.message = "Requeued for restart."
+            item.started_at = None
+            item.finished_at = None
+            item.updated_at = now
+
+        job.status = "queued"
+        job.error_message = None
+        job.started_at = None
+        job.finished_at = None
+        job.updated_at = now
+        self._refresh_generation_job_summary(db, job)
+        db.commit()
+
+        from app.workers.chapter_profile_tasks import generate_chapter_profiles_job
+
+        async_result = generate_chapter_profiles_job.delay(job.id, max(1, min(concurrency, 8)))
+        job.celery_task_id = async_result.id
+        job.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(job)
+        return job
+
     def list_generation_items(
         self,
         db: Session,
@@ -254,7 +301,7 @@ class ChapterProfileService:
                     .order_by(ChapterProfileGenerationItem.id.asc())
                     .all()
                 )
-                if item.status != "success"
+                if item.status not in {"success", "rule_only"}
             ]
             semaphore = asyncio.Semaphore(max(1, min(concurrency, 8)))
 

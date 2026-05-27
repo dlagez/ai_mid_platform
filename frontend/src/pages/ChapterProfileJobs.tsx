@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { EyeOutlined, ReloadOutlined } from "@ant-design/icons";
+import { EyeOutlined, PlayCircleOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Button, Card, Progress, Space, Table, Tag, Typography, message } from "antd";
 import {
   listChapterProfileJobs,
   listDocuments,
+  restartChapterProfileJob,
   type ChapterProfileGenerationJob,
   type DocumentRecord,
 } from "../services/documentService";
@@ -17,6 +18,7 @@ export const ChapterProfileJobsPage = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(false);
+  const [restartingJobId, setRestartingJobId] = useState<number | null>(null);
 
   const documentById = useMemo(() => {
     const map = new Map<number, DocumentRecord>();
@@ -48,6 +50,19 @@ export const ChapterProfileJobsPage = () => {
   useEffect(() => {
     void load(1, pageSize);
   }, []);
+
+  const handleRestart = async (jobId: number) => {
+    setRestartingJobId(jobId);
+    try {
+      await restartChapterProfileJob(jobId);
+      message.success(`Chapter profile job #${jobId} restarted.`);
+      await load();
+    } catch {
+      message.error("Failed to restart chapter profile job.");
+    } finally {
+      setRestartingJobId(null);
+    }
+  };
 
   return (
     <div className="page">
@@ -144,15 +159,26 @@ export const ChapterProfileJobsPage = () => {
             },
             {
               title: "",
-              width: 120,
+              width: 220,
               render: (_, record) => (
-                <Button
-                  size="small"
-                  icon={<EyeOutlined />}
-                  onClick={() => navigate(`/construction-plan/profile-jobs/${record.id}`)}
-                >
-                  Detail
-                </Button>
+                <Space>
+                  <Button
+                    size="small"
+                    icon={<EyeOutlined />}
+                    onClick={() => navigate(`/construction-plan/profile-jobs/${record.id}`)}
+                  >
+                    Detail
+                  </Button>
+                  <Button
+                    size="small"
+                    icon={<PlayCircleOutlined />}
+                    loading={restartingJobId === record.id}
+                    disabled={!canRestartProfileJob(record)}
+                    onClick={() => void handleRestart(record.id)}
+                  >
+                    Restart
+                  </Button>
+                </Space>
               ),
             },
           ]}
@@ -167,5 +193,9 @@ const ProfileStatusTag = ({ status }: { status: string }) => {
     status === "success" ? "green" : status === "partial_success" || status === "rule_only" ? "gold" : status === "failed" ? "red" : "blue";
   return <Tag color={color}>{status}</Tag>;
 };
+
+const canRestartProfileJob = (job: ChapterProfileGenerationJob) =>
+  ["queued", "running", "failed", "partial_success"].includes(job.status) &&
+  (job.processed_sections < job.total_sections || job.failed_count > 0);
 
 const formatDate = (value: string | null) => (value ? new Date(value).toLocaleString() : "-");
