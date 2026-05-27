@@ -145,10 +145,12 @@ def _chapter_type_match(chapter_type: str | None, checkpoint_types: list | None)
 
 def _chapter_type_alias(value: Any) -> str:
     text = str(value)
-    if text in {"construction_technology", "施工工艺", "施工技术", "工艺技术", "施工方法"}:
-        return "construction_technology"
-    if text in {"safety_control", "安全措施", "安全管理"}:
-        return "safety_control"
+    if text in {"construction_technology", "construction_process", "施工工艺", "施工技术", "工艺技术", "施工方法", "施工流程"}:
+        return "construction_process"
+    if text in {"safety_control", "safety_measure", "安全措施", "安全管理"}:
+        return "safety_measure"
+    if text in {"emergency", "emergency_plan", "应急预案", "应急处置"}:
+        return "emergency_plan"
     if text in {"calculation", "计算书", "验算"}:
         return "calculation"
     if text in {"project_overview", "工程概况"}:

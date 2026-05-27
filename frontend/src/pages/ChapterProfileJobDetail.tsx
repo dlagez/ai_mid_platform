@@ -544,15 +544,20 @@ const getScenarioTerms = (profile: ChapterReviewProfile) =>
 const chapterTypeOptions = [
   { value: "project_overview", label: "project_overview" },
   { value: "basis", label: "basis" },
-  { value: "construction_deployment", label: "construction_deployment" },
   { value: "construction_plan", label: "construction_plan" },
-  { value: "construction_technology", label: "construction_technology" },
   { value: "construction_process", label: "construction_process" },
+  { value: "technical_parameters", label: "technical_parameters" },
   { value: "quality_control", label: "quality_control" },
-  { value: "safety_control", label: "safety_control" },
-  { value: "emergency", label: "emergency" },
+  { value: "safety_measure", label: "safety_measure" },
+  { value: "emergency_plan", label: "emergency_plan" },
   { value: "calculation", label: "calculation" },
+  { value: "acceptance", label: "acceptance" },
+  { value: "organization", label: "organization" },
   { value: "other", label: "other" },
+  { value: "construction_deployment", label: "construction_deployment (legacy)" },
+  { value: "construction_technology", label: "construction_technology (legacy)" },
+  { value: "safety_control", label: "safety_control (legacy)" },
+  { value: "emergency", label: "emergency (legacy)" },
 ];
 
 const profileStatusOptions = [

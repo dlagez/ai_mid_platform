@@ -29,46 +29,83 @@ from app.utils.langfuse import flush_langfuse, langfuse_observation, update_lang
 CHAPTER_TYPE_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("project_overview", ("工程概况", "项目概况", "工程简介")),
     ("basis", ("编制依据", "依据", "规范依据")),
-    ("construction_deployment", ("施工部署", "施工安排", "组织部署")),
+    ("organization", ("施工部署", "施工安排", "组织部署", "组织机构", "施工组织")),
     ("construction_plan", ("施工计划", "进度计划", "资源计划")),
-    ("construction_technology", ("施工工艺", "施工技术", "工艺技术", "施工方法", "施工流程", "主要施工方法")),
+    ("construction_process", ("施工工艺", "施工技术", "工艺技术", "施工方法", "施工流程", "主要施工方法")),
+    ("technical_parameters", ("技术参数", "构造参数", "参数取值")),
     ("quality_control", ("质量保证", "质量控制", "质量管理", "验收")),
-    ("safety_control", ("安全保证", "安全措施", "安全管理", "危险源", "风险控制")),
-    ("emergency", ("应急预案", "应急处置", "救援预案")),
+    ("acceptance", ("验收要求", "验收标准", "检查验收")),
+    ("safety_measure", ("安全保证", "安全措施", "安全管理", "危险源", "风险控制")),
+    ("emergency_plan", ("应急预案", "应急处置", "救援预案")),
     ("calculation", ("计算书", "验算", "荷载", "承载力", "稳定性")),
 )
 
 DOMAIN_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("template_support", ("模板", "支撑架", "脚手架", "盘扣", "架体", "立杆", "剪刀撑")),
-    ("concrete", ("混凝土", "浇筑", "振捣", "养护")),
-    ("foundation", ("基础", "地基", "承载力", "垫板", "底座")),
-    ("demolition", ("拆除", "拆架", "拆模")),
+    ("模板支撑体系", ("模板", "支撑架", "盘扣", "架体", "立杆", "剪刀撑")),
+    ("脚手架工程", ("脚手架", "脚手板", "连墙件", "悬挑架")),
+    ("混凝土工程", ("混凝土", "浇筑", "振捣", "养护")),
+    ("基坑工程", ("基坑", "支护", "降水", "土方开挖")),
+    ("临时用电", ("临时用电", "配电箱", "漏电保护", "接地")),
+    ("钢结构工程", ("钢结构", "钢梁", "钢柱", "焊缝", "高强螺栓")),
+    ("起重吊装", ("起重", "吊装", "吊车", "塔吊", "汽车吊")),
+    ("防水工程", ("防水", "卷材", "涂膜", "防水层")),
 )
 
 EXPECTED_BY_CHAPTER_TYPE: dict[str, list[str]] = {
     "construction_technology": ["基础构造", "架体参数", "剪刀撑", "搭设", "拆除", "浇筑", "验收"],
+    "construction_process": ["基础构造", "架体参数", "剪刀撑", "搭设", "拆除", "浇筑", "验收"],
     "safety_control": ["危险源", "安全防护", "应急措施", "监测"],
+    "safety_measure": ["危险源", "安全防护", "应急措施", "监测"],
     "calculation": ["荷载", "承载力", "稳定性", "参数取值"],
 }
 COMPLETED_GENERATION_ITEM_STATUSES = {"success", "rule_only"}
 PROCESSED_GENERATION_ITEM_STATUSES = {"success", "rule_only", "failed", "cancelled"}
 TERMINAL_GENERATION_JOB_STATUSES = {"success", "partial_success", "failed", "cancelled"}
 
-PROFILE_EXTRACTION_PROMPT = """你是一名施工方案审查画像抽取助手。
-请基于章节标题和正文抽取结构化画像，只输出 JSON，不要输出 Markdown。
+PROFILE_EXTRACTION_PROMPT = """你是一名施工方案章节画像抽取助手。
 
-要求：
-1. 只能基于原文抽取，不要编造结论。
-2. mentioned_parameters 输出参数对象数组，每个对象包含 name、value、unit、source_text；materials、mentioned_methods、mentioned_risks、mentioned_standards、expected_missing_objects 输出字符串数组。
-3. confidence 为 0-1 小数。
+请基于施工方案章节标题和正文，抽取用于“规范审查点匹配”的结构化章节画像。
+只输出 JSON，不要输出 Markdown，不要添加解释性文字。
 
-章节标题：{title}
-章节类型：{chapter_type}
-章节正文：
-{content}
+重要原则：
+1. chapter_type、main_domain、subdomains、construction_objects、materials、mentioned_parameters、mentioned_methods、mentioned_risks、mentioned_standards 必须尽量基于原文抽取或由原文明显推断。
+2. expected_missing_objects 不是原文事实，而是“根据章节类型、已识别施工对象、常规施工方案规范审查要求”推断出的本章节应覆盖但当前未明显体现的审查对象。
+3. 不要把 expected_missing_objects 当作已经出现的内容。
+4. 如果信息不足，字段输出空数组或空字符串，不要编造具体数值。
+5. mentioned_parameters 中每个对象必须包含 name、value、unit、source_text。
+6. confidence 为 0-1 小数，表示本次章节画像整体可信度。
 
-输出格式：
+chapter_type 可选值：
+- project_overview
+- basis
+- construction_plan
+- construction_process
+- technical_parameters
+- quality_control
+- safety_measure
+- emergency_plan
+- calculation
+- acceptance
+- organization
+- other
+
+常见 main_domain 示例：
+- 模板支撑体系
+- 脚手架工程
+- 混凝土工程
+- 临时用电
+- 基坑工程
+- 钢结构工程
+- 起重吊装
+- 防水工程
+- 其他
+
+输出格式必须严格为：
 {{
+  "chapter_type": "",
+  "main_domain": "",
+  "subdomains": [],
+  "construction_objects": [],
   "materials": [],
   "mentioned_parameters": [
     {{
@@ -85,6 +122,15 @@ PROFILE_EXTRACTION_PROMPT = """你是一名施工方案审查画像抽取助手�
   "summary": "",
   "confidence": 0.0
 }}
+
+章节标题：
+{title}
+
+系统初步识别章节类型：
+{chapter_type}
+
+章节正文：
+{content}
 """
 
 
@@ -649,32 +695,36 @@ class ChapterProfileService:
         else:
             query = query.filter(ChapterReviewProfile.task_id == task_id)
         existing = query.first()
+        ai_chapter_type = _as_string(ai_data.get("chapter_type")) or chapter_type or ""
+        ai_main_domain = _as_string(ai_data.get("main_domain")) or main_domain or ""
+        ai_construction_objects = _as_construction_object_list(ai_data.get("construction_objects"))
+        merged_construction_objects = _merge_construction_objects(objects, ai_construction_objects)
         values = {
             "task_id": task_id,
             "document_id": document_id,
             "section_id": section.id,
             "chapter_title": section.title,
             "chapter_path": _build_chapter_path(section, section_map),
-            "chapter_type": chapter_type,
-            "main_domain": main_domain,
-            "subdomains": subdomains,
-            "construction_objects": objects,
+            "chapter_type": ai_chapter_type,
+            "main_domain": ai_main_domain,
+            "subdomains": _merge_lists(subdomains, _as_list(ai_data.get("subdomains"))),
+            "construction_objects": merged_construction_objects,
             "materials": _as_list(ai_data.get("materials")),
             "mentioned_parameters": _merge_parameter_lists(
                 _as_parameter_list(ai_data.get("mentioned_parameters")),
-                _object_related_values(objects, "related_parameters"),
+                _object_related_values(merged_construction_objects, "related_parameters"),
                 _extract_parameter_names(text),
             ),
             "mentioned_methods": _merge_lists(
                 _as_list(ai_data.get("mentioned_methods")),
-                _object_related_values(objects, "related_scenarios"),
+                _object_related_values(merged_construction_objects, "related_scenarios"),
                 _extract_methods(text),
             ),
             "mentioned_risks": _as_list(ai_data.get("mentioned_risks")),
             "mentioned_standards": _merge_lists(_as_list(ai_data.get("mentioned_standards")), _extract_standards(text)),
             "expected_missing_objects": _merge_lists(missing, _as_list(ai_data.get("expected_missing_objects"))),
-            "summary": ai_data.get("summary") or _fallback_summary(section, chapter_type, objects),
-            "confidence": _as_confidence(ai_data.get("confidence"), default=0.55 if ai_data else 0.35),
+            "summary": _as_string(ai_data.get("summary")) or _fallback_summary(section, ai_chapter_type, merged_construction_objects),
+            "confidence": _as_confidence(ai_data.get("confidence"), default=0.0),
             "updated_at": datetime.utcnow(),
         }
         if existing:
@@ -842,6 +892,12 @@ def _fallback_summary(section: PlanSection, chapter_type: str | None, objects: l
     return f"章节类型：{chapter_type or 'other'}；施工对象：{object_names or '未识别'}；标题：{section.title or ''}"
 
 
+def _as_string(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
 def _as_list(value: Any) -> list[str]:
     if value is None:
         return []
@@ -850,6 +906,58 @@ def _as_list(value: Any) -> list[str]:
     if isinstance(value, str):
         return [value.strip()] if value.strip() else []
     return [str(value)]
+
+
+def _as_construction_object_list(value: Any) -> list[dict[str, Any]]:
+    values = value if isinstance(value, list) else ([] if value is None else [value])
+    objects: list[dict[str, Any]] = []
+    for item in values:
+        if isinstance(item, dict):
+            object_name = _as_string(item.get("object_name") or item.get("name") or item.get("target_object"))
+            matched_terms = _as_list(item.get("matched_terms"))
+            if object_name or matched_terms:
+                normalized = dict(item)
+                normalized["object_code"] = _as_string(item.get("object_code"))
+                normalized["object_name"] = object_name or matched_terms[0]
+                normalized["object_type"] = _as_string(item.get("object_type"))
+                normalized["matched_terms"] = matched_terms
+                normalized["related_parameters"] = _as_list(item.get("related_parameters"))
+                normalized["related_scenarios"] = _as_list(item.get("related_scenarios"))
+                objects.append(normalized)
+            continue
+        object_name = _as_string(item)
+        if object_name:
+            objects.append(
+                {
+                    "object_code": "",
+                    "object_name": object_name,
+                    "object_type": "",
+                    "matched_terms": [object_name],
+                    "related_parameters": [],
+                    "related_scenarios": [],
+                }
+            )
+    return objects
+
+
+def _merge_construction_objects(*values: Any) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    merged: list[dict[str, Any]] = []
+    for value in values:
+        for item in _as_construction_object_list(value):
+            keys = {
+                key
+                for key in (
+                    _as_string(item.get("object_code")),
+                    _as_string(item.get("object_name")),
+                )
+                if key
+            }
+            if not keys or seen.intersection(keys):
+                continue
+            seen.update(keys)
+            merged.append(item)
+    return merged
 
 
 def _as_parameter_list(value: Any) -> list[dict[str, str]]:
