@@ -8,9 +8,9 @@ from app.workers.celery_worker import celery_app
 
 
 @celery_app.task(name="chapter_profiles.generate_for_document")
-def generate_chapter_profiles_job(job_id: int) -> dict:
+def generate_chapter_profiles_job(job_id: int, concurrency: int = 1) -> dict:
     db = SessionLocal()
     try:
-        return asyncio.run(ChapterProfileService().run_generation_job(db, job_id))
+        return asyncio.run(ChapterProfileService().run_generation_job(db, job_id, concurrency=concurrency))
     finally:
         db.close()

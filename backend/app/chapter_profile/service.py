@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections.abc import Generator
@@ -18,9 +19,11 @@ from app.db.models import (
     PlanSection,
     ReviewTask,
 )
+from app.db.session import SessionLocal
 from app.parsers.section_parse_strategies import DEFAULT_SECTION_PARSE_MODE, resolve_section_parse_mode
 from app.services.model_service import ModelService
 from app.utils.exceptions import PlatformError
+from app.utils.langfuse import flush_langfuse, langfuse_observation, update_langfuse_observation
 
 
 CHAPTER_TYPE_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -53,7 +56,7 @@ PROFILE_EXTRACTION_PROMPT = """你是一名施工方案审查画像抽取助手�
 
 要求：
 1. 只能基于原文抽取，不要编造结论。
-2. materials、mentioned_parameters、mentioned_methods、mentioned_risks、mentioned_standards、expected_missing_objects 均输出字符串数组。
+2. mentioned_parameters 输出参数对象数组，每个对象包含 name、value、unit、source_text；materials、mentioned_methods、mentioned_risks、mentioned_standards、expected_missing_objects 输出字符串数组。
 3. confidence 为 0-1 小数。
 
 章节标题：{title}
@@ -64,7 +67,14 @@ PROFILE_EXTRACTION_PROMPT = """你是一名施工方案审查画像抽取助手�
 输出格式：
 {{
   "materials": [],
-  "mentioned_parameters": [],
+  "mentioned_parameters": [
+    {{
+      "name": "",
+      "value": "",
+      "unit": "",
+      "source_text": ""
+    }}
+  ],
   "mentioned_methods": [],
   "mentioned_risks": [],
   "mentioned_standards": [],
@@ -91,6 +101,7 @@ class ChapterProfileService:
         db: Session,
         document_id: int,
         section_parse_mode: str | None = None,
+        concurrency: int = 3,
         created_by: int | None = None,
     ) -> ChapterProfileGenerationJob:
         document = self._ensure_construction_plan_document(db, document_id)
@@ -115,19 +126,20 @@ class ChapterProfileService:
             .order_by(PlanSection.sort_no.asc(), PlanSection.id.asc())
             .all()
         )
-        if not sections:
-            raise PlatformError("The review task document has no parsed sections.", status_code=400)
+        target_sections = _filter_profile_target_sections(sections)
+        if not target_sections:
+            raise PlatformError("The parsed document has no leaf sections with non-empty content.", status_code=400)
 
         section_map = {section.id: section for section in sections}
         job = ChapterProfileGenerationJob(
             document_id=document.id,
             status="queued",
-            total_sections=len(sections),
+            total_sections=len(target_sections),
             created_by=created_by,
         )
         db.add(job)
         db.flush()
-        for section in sections:
+        for section in target_sections:
             db.add(
                 ChapterProfileGenerationItem(
                     job_id=job.id,
@@ -143,7 +155,7 @@ class ChapterProfileService:
 
         from app.workers.chapter_profile_tasks import generate_chapter_profiles_job
 
-        async_result = generate_chapter_profiles_job.delay(job.id)
+        async_result = generate_chapter_profiles_job.delay(job.id, max(1, min(concurrency, 8)))
         job.celery_task_id = async_result.id
         db.commit()
         db.refresh(job)
@@ -223,7 +235,7 @@ class ChapterProfileService:
         )
         return items, total
 
-    async def run_generation_job(self, db: Session, job_id: int) -> dict[str, Any]:
+    async def run_generation_job(self, db: Session, job_id: int, concurrency: int = 1) -> dict[str, Any]:
         job = self.get_generation_job(db, job_id)
         if job.status in {"success", "partial_success", "failed"}:
             return {"job_id": job.id, "status": job.status}
@@ -234,76 +246,25 @@ class ChapterProfileService:
         db.commit()
 
         try:
-            items = (
-                db.query(ChapterProfileGenerationItem)
-                .filter(ChapterProfileGenerationItem.job_id == job.id)
-                .order_by(ChapterProfileGenerationItem.id.asc())
-                .all()
-            )
-            section_ids = [item.section_id for item in items if item.section_id is not None]
-            if section_ids:
-                sections = (
-                    db.query(PlanSection)
-                    .join(PlanParseResult, PlanParseResult.id == PlanSection.parse_result_id)
-                    .filter(
-                        PlanSection.document_id == job.document_id,
-                        PlanSection.id.in_(section_ids),
-                        PlanParseResult.parse_status == "parsed",
-                    )
-                    .order_by(PlanSection.sort_no.asc(), PlanSection.id.asc())
+            item_ids = [
+                item.id
+                for item in (
+                    db.query(ChapterProfileGenerationItem)
+                    .filter(ChapterProfileGenerationItem.job_id == job.id)
+                    .order_by(ChapterProfileGenerationItem.id.asc())
                     .all()
                 )
-            else:
-                sections = []
-            section_map = {section.id: section for section in sections}
-            section_by_id = {section.id: section for section in sections}
-            for item in items:
-                if item.status == "success":
-                    continue
-                item.status = "running"
-                item.started_at = item.started_at or datetime.utcnow()
-                item.updated_at = datetime.utcnow()
-                db.commit()
+                if item.status != "success"
+            ]
+            semaphore = asyncio.Semaphore(max(1, min(concurrency, 8)))
 
-                section = section_by_id.get(item.section_id or 0)
-                if not section:
-                    item.status = "failed"
-                    item.message = "Section not found."
-                    item.finished_at = datetime.utcnow()
-                    item.updated_at = datetime.utcnow()
-                    self._refresh_generation_job_summary(db, job)
-                    db.commit()
-                    continue
+            async def run_item(item_id: int) -> None:
+                async with semaphore:
+                    await self._run_generation_item(job_id, item_id)
 
-                try:
-                    profile, created, llm_failed = await self._upsert_profile_for_section(
-                        db,
-                        section=section,
-                        section_map=section_map,
-                        document_id=job.document_id,
-                        task_id=job.task_id,
-                    )
-                    item.status = "rule_only" if llm_failed else "success"
-                    item.profile_id = profile.id
-                    item.used_llm = not llm_failed
-                    item.confidence = profile.confidence
-                    action = "created" if created else "updated"
-                    item.message = f"Profile {action}; LLM failed, rule-only profile saved." if llm_failed else f"Profile {action}."
-                    item.finished_at = datetime.utcnow()
-                    item.updated_at = datetime.utcnow()
-                    self._refresh_generation_job_summary(db, job)
-                    db.commit()
-                except Exception as exc:
-                    db.rollback()
-                    job = self.get_generation_job(db, job_id)
-                    item = db.query(ChapterProfileGenerationItem).filter(ChapterProfileGenerationItem.id == item.id).first()
-                    if item:
-                        item.status = "failed"
-                        item.message = str(exc)
-                        item.finished_at = datetime.utcnow()
-                        item.updated_at = datetime.utcnow()
-                    self._refresh_generation_job_summary(db, job)
-                    db.commit()
+            await asyncio.gather(*(run_item(item_id) for item_id in item_ids))
+            db.expire_all()
+            job = self.get_generation_job(db, job_id)
             self._refresh_generation_job_summary(db, job)
             job.finished_at = datetime.utcnow()
             if job.failed_count >= job.total_sections:
@@ -314,6 +275,7 @@ class ChapterProfileService:
                 job.status = "success"
             job.updated_at = datetime.utcnow()
             db.commit()
+            flush_langfuse()
             return {"job_id": job.id, "status": job.status}
         except Exception as exc:
             db.rollback()
@@ -323,7 +285,81 @@ class ChapterProfileService:
             job.finished_at = datetime.utcnow()
             job.updated_at = datetime.utcnow()
             db.commit()
+            flush_langfuse()
             raise
+
+    async def _run_generation_item(self, job_id: int, item_id: int) -> None:
+        db = SessionLocal()
+        try:
+            job = self.get_generation_job(db, job_id)
+            item = db.query(ChapterProfileGenerationItem).filter(ChapterProfileGenerationItem.id == item_id).first()
+            if not item or item.status == "success":
+                return
+
+            item.status = "running"
+            item.started_at = item.started_at or datetime.utcnow()
+            item.updated_at = datetime.utcnow()
+            db.commit()
+
+            plan_section = (
+                db.query(PlanSection)
+                .join(PlanParseResult, PlanParseResult.id == PlanSection.parse_result_id)
+                .filter(
+                    PlanSection.document_id == job.document_id,
+                    PlanSection.id == item.section_id,
+                    PlanParseResult.parse_status == "parsed",
+                )
+                .first()
+            )
+            if not plan_section:
+                item.status = "failed"
+                item.message = "Section not found."
+                item.finished_at = datetime.utcnow()
+                item.updated_at = datetime.utcnow()
+                self._refresh_generation_job_summary(db, job)
+                db.commit()
+                return
+
+            section_map = {
+                section.id: section
+                for section in (
+                    db.query(PlanSection)
+                    .filter(PlanSection.parse_result_id == plan_section.parse_result_id)
+                    .order_by(PlanSection.sort_no.asc(), PlanSection.id.asc())
+                    .all()
+                )
+            }
+            profile, created, llm_failed = await self._upsert_profile_for_section(
+                db,
+                section=plan_section,
+                section_map=section_map,
+                document_id=job.document_id,
+                task_id=job.task_id,
+                job_id=job.id,
+            )
+            item.status = "rule_only" if llm_failed else "success"
+            item.profile_id = profile.id
+            item.used_llm = not llm_failed
+            item.confidence = profile.confidence
+            action = "created" if created else "updated"
+            item.message = f"Profile {action}; LLM failed, rule-only profile saved." if llm_failed else f"Profile {action}."
+            item.finished_at = datetime.utcnow()
+            item.updated_at = datetime.utcnow()
+            self._refresh_generation_job_summary(db, job)
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            job = self.get_generation_job(db, job_id)
+            item = db.query(ChapterProfileGenerationItem).filter(ChapterProfileGenerationItem.id == item_id).first()
+            if item:
+                item.status = "failed"
+                item.message = str(exc)
+                item.finished_at = datetime.utcnow()
+                item.updated_at = datetime.utcnow()
+            self._refresh_generation_job_summary(db, job)
+            db.commit()
+        finally:
+            db.close()
 
     async def _build_profiles_for_document(self, db: Session, *, document_id: int, task_id: int | None) -> dict[str, Any]:
         sections = (
@@ -338,8 +374,9 @@ class ChapterProfileService:
             .order_by(PlanSection.sort_no.asc(), PlanSection.id.asc())
             .all()
         )
-        if not sections:
-            raise PlatformError("The review task document has no parsed sections.", status_code=400)
+        sections_to_profile = _filter_profile_target_sections(sections)
+        if not sections_to_profile:
+            raise PlatformError("The review task document has no leaf sections with non-empty content.", status_code=400)
 
         section_map = {section.id: section for section in sections}
         created_count = 0
@@ -347,7 +384,7 @@ class ChapterProfileService:
         failed: list[dict[str, Any]] = []
         saved: list[ChapterReviewProfile] = []
 
-        for section in sections:
+        for section in sections_to_profile:
             try:
                 profile, created, llm_failed = await self._upsert_profile_for_section(
                     db,
@@ -385,6 +422,7 @@ class ChapterProfileService:
         section_map: dict[int, PlanSection],
         document_id: int,
         task_id: int | None,
+        job_id: int | None = None,
     ) -> tuple[ChapterReviewProfile, bool, bool]:
         text = f"{section.title}\n{section.content or ''}"
         chapter_type = _detect_chapter_type(section.title, section.content)
@@ -396,7 +434,7 @@ class ChapterProfileService:
         ai_data: dict[str, Any] = {}
         llm_failed = False
         try:
-            ai_data = await self._extract_profile_by_llm(section, chapter_type)
+            ai_data = await self._extract_profile_by_llm(section, chapter_type, job_id=job_id, document_id=document_id)
         except Exception:
             llm_failed = True
 
@@ -420,8 +458,8 @@ class ChapterProfileService:
             "subdomains": subdomains,
             "construction_objects": objects,
             "materials": _as_list(ai_data.get("materials")),
-            "mentioned_parameters": _merge_lists(
-                _as_list(ai_data.get("mentioned_parameters")),
+            "mentioned_parameters": _merge_parameter_lists(
+                _as_parameter_list(ai_data.get("mentioned_parameters")),
                 _object_related_values(objects, "related_parameters"),
                 _extract_parameter_names(text),
             ),
@@ -465,30 +503,60 @@ class ChapterProfileService:
         job.rule_only_count = sum(1 for item in items if item.status == "rule_only")
         job.updated_at = datetime.utcnow()
 
-    async def _extract_profile_by_llm(self, section: PlanSection, chapter_type: str | None) -> dict[str, Any]:
+    async def _extract_profile_by_llm(
+        self,
+        section: PlanSection,
+        chapter_type: str | None,
+        *,
+        job_id: int | None = None,
+        document_id: int | None = None,
+    ) -> dict[str, Any]:
         content = (section.content or "")[:4000]
         if not content.strip():
             return {}
         model_service = ModelService()
-        result = await model_service.call_model(
-            {
-                "model": model_service.default_model,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": PROFILE_EXTRACTION_PROMPT.format(
-                            title=section.title or "",
-                            chapter_type=chapter_type or "",
-                            content=content,
-                        ),
-                    }
-                ],
-                "temperature": 0.1,
-                "max_tokens": 1200,
-            }
+        prompt = PROFILE_EXTRACTION_PROMPT.format(
+            title=section.title or "",
+            chapter_type=chapter_type or "",
+            content=content,
         )
-        content = ((result.get("output") or {}).get("content") or "").strip()
-        return _parse_json_object(content)
+        payload = {
+            "model": model_service.default_model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
+            "temperature": 0.1,
+            "max_tokens": 1200,
+        }
+        metadata = {
+            "operation": "chapter_profile.extract",
+            "job_id": job_id,
+            "document_id": document_id or section.document_id,
+            "section_id": section.id,
+            "section_title": section.title,
+            "chapter_type": chapter_type,
+            "content_chars": len(content),
+        }
+        with langfuse_observation(
+            name="chapter_profile.extract",
+            input_data={"messages": payload["messages"]},
+            metadata=metadata,
+            session_id=f"chapter-profile-job:{job_id}" if job_id else f"chapter-profile-document:{document_id or section.document_id}",
+            tags=["chapter_profile", "llm"],
+            as_type="generation",
+            model=model_service.default_model,
+        ) as observation:
+            result = await model_service.call_model(payload)
+            output_content = ((result.get("output") or {}).get("content") or "").strip()
+            update_langfuse_observation(
+                observation,
+                output={"content": output_content},
+                metadata=metadata | {"output_chars": len(output_content)},
+            )
+        return _parse_json_object(output_content)
 
 
 def _detect_chapter_type(title: str | None, content: str | None = None) -> str | None:
@@ -497,6 +565,15 @@ def _detect_chapter_type(title: str | None, content: str | None = None) -> str |
         if any(keyword in text for keyword in keywords):
             return chapter_type
     return "other"
+
+
+def _filter_profile_target_sections(sections: list[PlanSection]) -> list[PlanSection]:
+    parent_ids = {section.parent_id for section in sections if section.parent_id is not None}
+    return [
+        section
+        for section in sections
+        if section.id not in parent_ids and (section.content or "").strip()
+    ]
 
 
 def _detect_main_domain(text: str) -> str | None:
@@ -572,6 +649,44 @@ def _as_list(value: Any) -> list[str]:
     if isinstance(value, str):
         return [value.strip()] if value.strip() else []
     return [str(value)]
+
+
+def _as_parameter_list(value: Any) -> list[dict[str, str]]:
+    values = value if isinstance(value, list) else ([] if value is None else [value])
+    parameters: list[dict[str, str]] = []
+    for item in values:
+        if isinstance(item, dict):
+            parameter = {
+                "name": str(item.get("name") or "").strip(),
+                "value": str(item.get("value") or "").strip(),
+                "unit": str(item.get("unit") or "").strip(),
+                "source_text": str(item.get("source_text") or "").strip(),
+            }
+            if any(parameter.values()):
+                parameters.append(parameter)
+            continue
+        text = str(item).strip()
+        if text:
+            parameters.append({"name": text, "value": "", "unit": "", "source_text": ""})
+    return parameters
+
+
+def _merge_parameter_lists(*values: Any) -> list[dict[str, str]]:
+    seen: set[str] = set()
+    merged: list[dict[str, str]] = []
+    for value in values:
+        iterable = value if isinstance(value, (list, tuple, set, Generator)) else [value]
+        for item in iterable:
+            parameter = _as_parameter_list([item])
+            if not parameter:
+                continue
+            current = parameter[0]
+            key = "|".join([current.get("name", ""), current.get("value", ""), current.get("unit", "")]).strip("|")
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            merged.append(current)
+    return merged
 
 
 def _merge_lists(*values: Any) -> list[str]:

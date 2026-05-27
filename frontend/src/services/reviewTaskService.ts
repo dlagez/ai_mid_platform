@@ -72,6 +72,16 @@ export type ReviewIssue = {
   updated_at: string;
 };
 
+export type ChapterProfileParameter =
+  | string
+  | {
+      name?: string;
+      value?: string | number;
+      unit?: string;
+      source_text?: string;
+      [key: string]: unknown;
+    };
+
 export type ChapterReviewProfile = {
   id: number;
   task_id: number | null;
@@ -84,7 +94,7 @@ export type ChapterReviewProfile = {
   subdomains: string[];
   construction_objects: Array<Record<string, unknown>>;
   materials: string[];
-  mentioned_parameters: string[];
+  mentioned_parameters: ChapterProfileParameter[];
   mentioned_methods: string[];
   mentioned_risks: string[];
   mentioned_standards: string[];

@@ -101,7 +101,7 @@ class CheckpointMatcherService:
 def score_checkpoint(profile: ChapterReviewProfile, checkpoint: ReviewCheckpoint) -> tuple[float, dict[str, Any], str]:
     chapter_type_match = _chapter_type_match(profile.chapter_type, checkpoint.chapter_types)
     object_match = _object_match(profile.construction_objects or [], checkpoint.target_objects or [])
-    parameter_match = _list_match(profile.mentioned_parameters or [], checkpoint.target_parameters or [])
+    parameter_match = _list_match(_profile_parameter_terms(profile.mentioned_parameters or []), checkpoint.target_parameters or [])
     scenario_match = _scenario_match(profile, checkpoint)
     missing_expectation_match = _list_match(profile.expected_missing_objects or [], (checkpoint.expected_items or []) + (checkpoint.target_objects or []))
     mandatory_boost = 1.0 if checkpoint.is_mandatory else 0.0
@@ -179,7 +179,7 @@ def _semantic_similarity(profile: ChapterReviewProfile, checkpoint: ReviewCheckp
             profile.chapter_title or "",
             profile.summary or "",
             " ".join(profile.mentioned_methods or []),
-            " ".join(profile.mentioned_parameters or []),
+            " ".join(_profile_parameter_terms(profile.mentioned_parameters or [])),
         ]
     )
     checkpoint_text = " ".join(
@@ -198,8 +198,8 @@ def _semantic_similarity(profile: ChapterReviewProfile, checkpoint: ReviewCheckp
 
 
 def _list_match(left_values: list | None, right_values: list | None) -> float:
-    left = [normalize_text(str(item)) for item in (left_values or []) if normalize_text(str(item))]
-    right = [normalize_text(str(item)) for item in (right_values or []) if normalize_text(str(item))]
+    left = [normalize_text(_match_text(item)) for item in (left_values or []) if normalize_text(_match_text(item))]
+    right = [normalize_text(_match_text(item)) for item in (right_values or []) if normalize_text(_match_text(item))]
     if not left or not right:
         return 0.0
     hits = 0
@@ -207,6 +207,22 @@ def _list_match(left_values: list | None, right_values: list | None) -> float:
         if any(r_item in l_item or l_item in r_item for l_item in left):
             hits += 1
     return min(1.0, hits / max(len(right), 1))
+
+
+def _profile_parameter_terms(parameters: list | None) -> list[str]:
+    terms: list[str] = []
+    for item in parameters or []:
+        if isinstance(item, dict):
+            terms.extend(str(item.get(key) or "") for key in ("name", "value", "unit", "source_text"))
+        else:
+            terms.append(str(item))
+    return [term.strip() for term in terms if term.strip()]
+
+
+def _match_text(value: Any) -> str:
+    if isinstance(value, dict):
+        return " ".join(str(item or "") for item in value.values())
+    return str(value)
 
 
 def _tokens(text: str) -> set[str]:

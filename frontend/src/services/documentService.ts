@@ -150,6 +150,16 @@ export type ChapterProfileGenerationItemList = {
   page_size: number;
 };
 
+export type ChapterProfileParameter =
+  | string
+  | {
+      name?: string;
+      value?: string | number;
+      unit?: string;
+      source_text?: string;
+      [key: string]: unknown;
+    };
+
 export type ChapterReviewProfile = {
   id: number;
   task_id: number | null;
@@ -162,7 +172,7 @@ export type ChapterReviewProfile = {
   subdomains: string[];
   construction_objects: Array<Record<string, unknown>>;
   materials: string[];
-  mentioned_parameters: string[];
+  mentioned_parameters: ChapterProfileParameter[];
   mentioned_methods: string[];
   mentioned_risks: string[];
   mentioned_standards: string[];
@@ -247,12 +257,19 @@ export const getDocumentSections = async (id: number, sectionParseMode?: Section
   return data;
 };
 
-export const createChapterProfileJob = async (documentId: number, sectionParseMode?: SectionParseMode) => {
+export const createChapterProfileJob = async (
+  documentId: number,
+  sectionParseMode?: SectionParseMode,
+  concurrency?: number,
+) => {
   const { data } = await apiClient.post<{ job: ChapterProfileGenerationJob }>(
     `/documents/${documentId}/chapter-profile-jobs`,
     null,
     {
-      params: sectionParseMode ? { section_parse_mode: sectionParseMode } : undefined,
+      params: {
+        ...(sectionParseMode ? { section_parse_mode: sectionParseMode } : {}),
+        ...(concurrency ? { concurrency } : {}),
+      },
     },
   );
   return data.job;

@@ -65,6 +65,7 @@ type ParsedDocumentUploadPageProps = {
 };
 
 const DEFAULT_PARSE_CONCURRENCY = 3;
+const DEFAULT_PROFILE_CONCURRENCY = 3;
 
 const ParsedDocumentUploadPage = ({
   documentType,
@@ -84,6 +85,7 @@ const ParsedDocumentUploadPage = ({
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   const [activeParseMode, setActiveParseMode] = useState<SectionParseMode>("docling_auto");
   const [parseConcurrency, setParseConcurrency] = useState(DEFAULT_PARSE_CONCURRENCY);
+  const [profileConcurrency, setProfileConcurrency] = useState(DEFAULT_PROFILE_CONCURRENCY);
   const [loading, setLoading] = useState({
     files: false,
     upload: false,
@@ -305,7 +307,7 @@ const ParsedDocumentUploadPage = ({
     }
     setLoading((s) => ({ ...s, profile: true }));
     try {
-      const job = await createChapterProfileJob(record.id, activeParseMode);
+      const job = await createChapterProfileJob(record.id, activeParseMode, profileConcurrency);
       message.success(`Chapter profile job #${job.id} queued.`);
       await refreshProfileJobs();
       navigate(`/construction-plan/profile-jobs/${job.id}`);
@@ -345,8 +347,11 @@ const ParsedDocumentUploadPage = ({
               <ParseControls
                 activeParseMode={activeParseMode}
                 parseConcurrency={parseConcurrency}
+                profileConcurrency={profileConcurrency}
+                enableChapterProfiles={enableChapterProfiles}
                 onModeChange={(mode) => void handleModeChange(mode)}
                 onConcurrencyChange={setParseConcurrency}
+                onProfileConcurrencyChange={setProfileConcurrency}
               />
               <Button type="primary" loading={loading.upload} onClick={() => void handleUpload()} icon={<CloudUploadOutlined />}>
                 Upload to MinIO
@@ -530,16 +535,22 @@ const ParsedDocumentUploadPage = ({
 const ParseControls = ({
   activeParseMode,
   parseConcurrency,
+  profileConcurrency,
+  enableChapterProfiles,
   onModeChange,
   onConcurrencyChange,
+  onProfileConcurrencyChange,
 }: {
   activeParseMode: SectionParseMode;
   parseConcurrency: number;
+  profileConcurrency: number;
+  enableChapterProfiles: boolean;
   onModeChange: (mode: SectionParseMode) => void;
   onConcurrencyChange: (value: number) => void;
+  onProfileConcurrencyChange: (value: number) => void;
 }) => (
   <Row gutter={[8, 8]}>
-    <Col span={16}>
+    <Col span={enableChapterProfiles ? 12 : 16}>
       <Typography.Text type="secondary">解析方法</Typography.Text>
       <Select
         style={{ width: "100%", marginTop: 4 }}
@@ -552,7 +563,7 @@ const ParseControls = ({
         onChange={onModeChange}
       />
     </Col>
-    <Col span={8}>
+    <Col span={enableChapterProfiles ? 6 : 8}>
       <Typography.Text type="secondary">同时解析数</Typography.Text>
       <InputNumber
         min={1}
@@ -562,6 +573,18 @@ const ParseControls = ({
         onChange={(value) => onConcurrencyChange(Number(value || DEFAULT_PARSE_CONCURRENCY))}
       />
     </Col>
+    {enableChapterProfiles ? (
+      <Col span={6}>
+        <Typography.Text type="secondary">Profile并发数</Typography.Text>
+        <InputNumber
+          min={1}
+          max={8}
+          value={profileConcurrency}
+          style={{ width: "100%", marginTop: 4 }}
+          onChange={(value) => onProfileConcurrencyChange(Number(value || DEFAULT_PROFILE_CONCURRENCY))}
+        />
+      </Col>
+    ) : null}
   </Row>
 );
 

@@ -324,9 +324,15 @@ async def create_chapter_profile_job(
     profile_service: Annotated[ChapterProfileService, Depends(get_chapter_profile_service)],
     db: Annotated[Session, Depends(get_db)],
     section_parse_mode: Annotated[str | None, Query()] = None,
+    concurrency: int = Query(3, ge=1, le=8),
 ) -> CreateChapterProfileGenerationJobResponse:
     try:
-        job = profile_service.create_generation_job(db, record_id, section_parse_mode=section_parse_mode)
+        job = profile_service.create_generation_job(
+            db,
+            record_id,
+            section_parse_mode=section_parse_mode,
+            concurrency=concurrency,
+        )
     except ParserConfigError as exc:
         raise PlatformError(str(exc), status_code=400) from exc
     return CreateChapterProfileGenerationJobResponse(job=job)
