@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeftOutlined, PauseCircleOutlined, PlayCircleOutlined, ReloadOutlined, SearchOutlined, StopOutlined } from "@ant-design/icons";
-import { Button, Card, Descriptions, Form, Input, Modal, Popconfirm, Progress, Select, Space, Table, Tag, Typography, message } from "antd";
+import { Button, Card, Col, Descriptions, Empty, Form, Input, Modal, Popconfirm, Progress, Row, Select, Space, Table, Tabs, Tag, Tree, Typography, message } from "antd";
 import type { TablePaginationConfig } from "antd";
+import type { DataNode } from "antd/es/tree";
 import {
   cancelChapterProfileJob,
+  getChapterProfileJobSections,
   getChapterProfileJob,
   listChapterProfileJobItems,
   listChapterProfileJobProfiles,
@@ -14,7 +16,10 @@ import {
   type ChapterProfileGenerationItem,
   type ChapterProfileGenerationJob,
   type ChapterReviewProfile,
+  type DocumentParseResult,
+  type PlanSection,
 } from "../services/documentService";
+import { listReviewTaskCheckpointMatches, type CheckpointMatchWithCheckpoint } from "../services/reviewTaskService";
 
 const { TextArea } = Input;
 
@@ -55,6 +60,9 @@ export const ChapterProfileJobDetailPage = () => {
   const [job, setJob] = useState<ChapterProfileGenerationJob | null>(null);
   const [items, setItems] = useState<ChapterProfileGenerationItem[]>([]);
   const [profiles, setProfiles] = useState<ChapterReviewProfile[]>([]);
+  const [parsed, setParsed] = useState<DocumentParseResult | null>(null);
+  const [matches, setMatches] = useState<CheckpointMatchWithCheckpoint[]>([]);
+  const [selectedSectionId, setSelectedSectionId] = useState<number | null>(null);
   const [profileQuery, setProfileQuery] = useState<ProfileFilterValues & { page: number; page_size: number }>({
     page: 1,
     page_size: 20,
@@ -77,9 +85,16 @@ export const ChapterProfileJobDetailPage = () => {
         listChapterProfileJobItems(jobId, { page: 1, page_size: 500 }),
         listChapterProfileJobProfiles(jobId, { page: 1, page_size: 500 }),
       ]);
+      const [parseResult, matchResult] = await Promise.all([
+        getChapterProfileJobSections(jobResult.id),
+        jobResult.task_id ? listReviewTaskCheckpointMatches(jobResult.task_id) : Promise.resolve({ items: [], total: 0 }),
+      ]);
       setJob(jobResult);
       setItems(itemResult.items);
       setProfiles(profileResult.items);
+      setParsed(parseResult);
+      setMatches(matchResult.items);
+      setSelectedSectionId((current) => current ?? findFirstProfileSectionId(profileResult.items) ?? findFirstSection(parseResult.sections)?.id ?? null);
     } catch {
       message.error("Failed to load chapter profile job.");
     } finally {
@@ -101,6 +116,16 @@ export const ChapterProfileJobDetailPage = () => {
     [filteredProfiles, profileQuery.page, profileQuery.page_size],
   );
   const percent = job?.total_sections ? Math.round((job.processed_sections / job.total_sections) * 100) : 0;
+  const profilesBySectionId = useMemo(() => groupProfilesBySectionId(profiles), [profiles]);
+  const itemsBySectionId = useMemo(() => groupItemsBySectionId(items), [items]);
+  const matchesBySectionId = useMemo(() => groupMatchesBySectionId(matches), [matches]);
+  const selectedSection = useMemo(
+    () => (parsed && selectedSectionId ? findSection(parsed.sections, selectedSectionId) : null),
+    [parsed, selectedSectionId],
+  );
+  const selectedProfiles = selectedSection ? profilesBySectionId.get(selectedSection.id) ?? [] : [];
+  const selectedItem = selectedSection ? itemsBySectionId.get(selectedSection.id) ?? null : null;
+  const selectedMatches = selectedSection ? matchesBySectionId.get(selectedSection.id) ?? [] : [];
 
   const applyFilter = () => {
     const values = filterForm.getFieldsValue();
@@ -266,108 +291,39 @@ export const ChapterProfileJobDetailPage = () => {
         )}
       </Card>
 
-      <Card title="Generated Profiles">
-        <Form form={filterForm} layout="inline" className="table-filter-form">
-          <Form.Item name="status" label="Status">
-            <Select allowClear style={{ width: 150 }} options={profileStatusOptions} />
-          </Form.Item>
-          <Form.Item name="checkpoint_type" label="Type">
-            <Select allowClear style={{ width: 210 }} options={chapterTypeOptions} />
-          </Form.Item>
-          <Form.Item name="domain" label="Domain">
-            <Input allowClear />
-          </Form.Item>
-          <Form.Item name="work_type" label="Work Type">
-            <Input allowClear />
-          </Form.Item>
-          <Form.Item name="keyword" label="Keyword">
-            <Input allowClear />
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" icon={<SearchOutlined />} onClick={applyFilter}>
-              Search
-            </Button>
-          </Form.Item>
-        </Form>
-
-        <Table<ChapterReviewProfile>
-          rowKey="id"
-          loading={loading}
-          dataSource={pagedProfiles}
-          onRow={(record) => ({
-            onClick: () => openProfile(record),
-            className: `document-row${selectedProfileId === record.id ? " document-row-selected" : ""}`,
-          })}
-          pagination={{
-            current: profileQuery.page,
-            pageSize: profileQuery.page_size,
-            total: filteredProfiles.length,
-            showSizeChanger: true,
-          }}
-          onChange={handleProfileTableChange}
-          columns={[
-            { title: "Code", dataIndex: "id", width: 140, ellipsis: true, render: (value: number) => `PROFILE-${value}` },
-            {
-              title: "Checkpoint",
-              dataIndex: "chapter_title",
-              ellipsis: true,
-              render: (value: string | null, record) => value || record.chapter_path || "-",
-            },
-            {
-              title: "Type",
-              dataIndex: "chapter_type",
-              width: 190,
-              render: (value: string | null) => value || "-",
-            },
-            {
-              title: "Domain",
-              dataIndex: "main_domain",
-              width: 130,
-              render: (value: string | null) => value || "-",
-            },
-            {
-              title: "Work Type",
-              dataIndex: "subdomains",
-              width: 160,
-              render: (values: string[]) => <TagList values={values} />,
-            },
-            {
-              title: "Targets",
-              width: 220,
-              render: (_, record) => <TagList values={getConstructionObjectTags(record)} />,
-            },
-            {
-              title: "Parameters",
-              width: 200,
-              render: (_, record) => <TagList values={getParameterTags(record)} />,
-            },
-            {
-              title: "Keywords",
-              width: 220,
-              render: (_, record) => <TagList values={getScenarioTerms(record)} />,
-            },
-            {
-              title: "Status",
-              width: 120,
-              render: (_, record) => <ConfidenceTag confidence={record.confidence} />,
-            },
-          ]}
-        />
+      <Card title="Document Section Tree">
+        <Row gutter={[16, 16]}>
+          <Col xs={24} lg={9}>
+            <div className="plan-section-tree chapter-profile-section-tree">
+              {parsed?.sections.length ? (
+                <Tree
+                  blockNode
+                  defaultExpandAll
+                  selectedKeys={selectedSectionId ? [String(selectedSectionId)] : []}
+                  treeData={toSectionTreeData(parsed.sections, profilesBySectionId, itemsBySectionId, matchesBySectionId)}
+                  onSelect={(keys) => setSelectedSectionId(keys[0] ? Number(keys[0]) : null)}
+                />
+              ) : (
+                <Empty description="No parsed section tree found." />
+              )}
+            </div>
+          </Col>
+          <Col xs={24} lg={15}>
+            <div className="plan-section-content chapter-profile-section-detail">
+              {selectedSection ? (
+                <SectionReviewPanel
+                  section={selectedSection}
+                  profiles={selectedProfiles}
+                  generationItem={selectedItem}
+                  matches={selectedMatches}
+                />
+              ) : (
+                <Empty description="Select a section" />
+              )}
+            </div>
+          </Col>
+        </Row>
       </Card>
-
-      <Modal
-        title="章节画像详情"
-        open={Boolean(editingProfile)}
-        width={920}
-        footer={
-          <Space>
-            <Button onClick={() => setEditingProfile(null)}>Close</Button>
-          </Space>
-        }
-        onCancel={() => setEditingProfile(null)}
-      >
-        <ProfileForm form={profileForm} />
-      </Modal>
 
       <Card title="Section Queue Details">
         <Table<ChapterProfileGenerationItem>
@@ -425,6 +381,162 @@ export const ChapterProfileJobDetailPage = () => {
     </div>
   );
 };
+
+const SectionReviewPanel = ({
+  section,
+  profiles,
+  generationItem,
+  matches,
+}: {
+  section: PlanSection;
+  profiles: ChapterReviewProfile[];
+  generationItem: ChapterProfileGenerationItem | null;
+  matches: CheckpointMatchWithCheckpoint[];
+}) => (
+  <Space direction="vertical" size={16} style={{ width: "100%" }}>
+    <div>
+      <Space size={8} wrap>
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          {section.title}
+        </Typography.Title>
+        {section.section_no ? <Tag>{section.section_no}</Tag> : null}
+        <Tag>section #{section.id}</Tag>
+        {generationItem ? <StatusTag status={generationItem.status} /> : null}
+      </Space>
+      <Typography.Text type="secondary">
+        level {section.level} / parse result {section.parse_result_id}
+      </Typography.Text>
+    </div>
+    <Tabs
+      items={[
+        {
+          key: "section",
+          label: "Section",
+          children: (
+            <Typography.Paragraph className="chapter-profile-text-block">
+              {section.content || "No content found for this section."}
+            </Typography.Paragraph>
+          ),
+        },
+        {
+          key: "profile",
+          label: `Profile (${profiles.length})`,
+          children: profiles.length ? (
+            <Space direction="vertical" size={12} style={{ width: "100%" }}>
+              {profiles.map((profile) => (
+                <ProfileSummary key={profile.id} profile={profile} />
+              ))}
+            </Space>
+          ) : (
+            <Empty description="No profile generated for this section." />
+          ),
+        },
+        {
+          key: "checkpoints",
+          label: `Checkpoints (${matches.length})`,
+          children: matches.length ? <CheckpointMatchTable matches={matches} /> : <Empty description="No checkpoint matches for this section." />,
+        },
+      ]}
+    />
+  </Space>
+);
+
+const ProfileSummary = ({ profile }: { profile: ChapterReviewProfile }) => (
+  <Card size="small" title={`PROFILE-${profile.id}`} className="chapter-profile-detail-card">
+    <Descriptions size="small" column={2}>
+      <Descriptions.Item label="Chapter Type">{profile.chapter_type || "-"}</Descriptions.Item>
+      <Descriptions.Item label="Confidence">
+        <ConfidenceTag confidence={profile.confidence} />
+      </Descriptions.Item>
+      <Descriptions.Item label="Domain">{profile.main_domain || "-"}</Descriptions.Item>
+      <Descriptions.Item label="Subdomains">
+        <TagList values={profile.subdomains} />
+      </Descriptions.Item>
+      <Descriptions.Item label="Objects" span={2}>
+        <TagList values={getConstructionObjectTags(profile)} />
+      </Descriptions.Item>
+      <Descriptions.Item label="Materials" span={2}>
+        <TagList values={profile.materials} />
+      </Descriptions.Item>
+      <Descriptions.Item label="Parameters" span={2}>
+        <TagList values={getParameterTags(profile)} />
+      </Descriptions.Item>
+      <Descriptions.Item label="Methods" span={2}>
+        <TagList values={profile.mentioned_methods} />
+      </Descriptions.Item>
+      <Descriptions.Item label="Risks" span={2}>
+        <TagList values={profile.mentioned_risks} />
+      </Descriptions.Item>
+      <Descriptions.Item label="Standards" span={2}>
+        <TagList values={profile.mentioned_standards} />
+      </Descriptions.Item>
+      <Descriptions.Item label="Expected Missing" span={2}>
+        <TagList values={profile.expected_missing_objects} />
+      </Descriptions.Item>
+      <Descriptions.Item label="Summary" span={2}>
+        {profile.summary || "-"}
+      </Descriptions.Item>
+    </Descriptions>
+  </Card>
+);
+
+const CheckpointMatchTable = ({ matches }: { matches: CheckpointMatchWithCheckpoint[] }) => (
+  <Table<CheckpointMatchWithCheckpoint>
+    rowKey="id"
+    size="small"
+    dataSource={matches}
+    pagination={{ pageSize: 8 }}
+    columns={[
+      {
+        title: "Checkpoint",
+        render: (_, record) => record.checkpoint?.checkpoint_name || `Checkpoint #${record.checkpoint_id}`,
+        ellipsis: true,
+      },
+      {
+        title: "Type",
+        width: 180,
+        render: (_, record) => record.checkpoint?.checkpoint_type || "-",
+      },
+      {
+        title: "Risk",
+        width: 110,
+        render: (_, record) => <RiskTag risk={record.checkpoint?.risk_level} />,
+      },
+      {
+        title: "Score",
+        dataIndex: "match_score",
+        width: 90,
+        render: (value: number) => Number(value).toFixed(2),
+      },
+      {
+        title: "Status",
+        dataIndex: "status",
+        width: 110,
+        render: (value: string) => <StatusTag status={value} />,
+      },
+      {
+        title: "Reason",
+        dataIndex: "match_reason",
+        ellipsis: true,
+        render: (value: string | null) => value || "-",
+      },
+    ]}
+    expandable={{
+      expandedRowRender: (record) => (
+        <Descriptions size="small" column={1}>
+          <Descriptions.Item label="Targets">
+            <TagList values={record.checkpoint?.target_objects ?? []} />
+          </Descriptions.Item>
+          <Descriptions.Item label="Parameters">
+            <TagList values={record.checkpoint?.target_parameters ?? []} />
+          </Descriptions.Item>
+          <Descriptions.Item label="Goal">{record.checkpoint?.check_goal || "-"}</Descriptions.Item>
+          <Descriptions.Item label="Clause">{record.checkpoint?.clause_text || "-"}</Descriptions.Item>
+        </Descriptions>
+      ),
+    }}
+  />
+);
 
 const ProfileForm = ({
   form,
@@ -505,6 +617,76 @@ const ProfileForm = ({
 );
 
 const formatJson = (value: unknown) => JSON.stringify(value ?? [], null, 2);
+
+const toSectionTreeData = (
+  sections: PlanSection[],
+  profilesBySectionId: Map<number, ChapterReviewProfile[]>,
+  itemsBySectionId: Map<number, ChapterProfileGenerationItem>,
+  matchesBySectionId: Map<number, CheckpointMatchWithCheckpoint[]>,
+): DataNode[] =>
+  sections.map((section) => {
+    const profileCount = profilesBySectionId.get(section.id)?.length ?? 0;
+    const matchCount = matchesBySectionId.get(section.id)?.length ?? 0;
+    const generationItem = itemsBySectionId.get(section.id);
+    return {
+      key: String(section.id),
+      title: (
+        <Space size={6} wrap>
+          <span>{section.title}</span>
+          {profileCount ? <Tag color="green">P {profileCount}</Tag> : null}
+          {matchCount ? <Tag color="blue">C {matchCount}</Tag> : null}
+          {generationItem && generationItem.status !== "success" ? <StatusTag status={generationItem.status} /> : null}
+        </Space>
+      ),
+      children: toSectionTreeData(section.children, profilesBySectionId, itemsBySectionId, matchesBySectionId),
+    };
+  });
+
+const findSection = (sections: PlanSection[], id: number): PlanSection | null => {
+  for (const section of sections) {
+    if (section.id === id) {
+      return section;
+    }
+    const child = findSection(section.children, id);
+    if (child) {
+      return child;
+    }
+  }
+  return null;
+};
+
+const findFirstSection = (sections: PlanSection[]): PlanSection | null => {
+  const [first] = sections;
+  return first ?? null;
+};
+
+const findFirstProfileSectionId = (profiles: ChapterReviewProfile[]) => profiles[0]?.section_id ?? null;
+
+const groupProfilesBySectionId = (profiles: ChapterReviewProfile[]) => {
+  const grouped = new Map<number, ChapterReviewProfile[]>();
+  for (const profile of profiles) {
+    grouped.set(profile.section_id, [...(grouped.get(profile.section_id) ?? []), profile]);
+  }
+  return grouped;
+};
+
+const groupItemsBySectionId = (items: ChapterProfileGenerationItem[]) => {
+  const grouped = new Map<number, ChapterProfileGenerationItem>();
+  for (const item of items) {
+    if (item.section_id != null) {
+      grouped.set(item.section_id, item);
+    }
+  }
+  return grouped;
+};
+
+const groupMatchesBySectionId = (matches: CheckpointMatchWithCheckpoint[]) => {
+  const grouped = new Map<number, CheckpointMatchWithCheckpoint[]>();
+  for (const match of matches) {
+    grouped.set(match.section_id, [...(grouped.get(match.section_id) ?? []), match]);
+  }
+  return grouped;
+};
 
 const formatParameter = (value: ChapterReviewProfile["mentioned_parameters"][number]) => {
   if (typeof value === "string") {
@@ -654,12 +836,19 @@ const StatusTag = ({ status }: { status: string }) => {
   const color =
     status === "success"
       ? "green"
+      : status === "selected" || status === "active"
+      ? "green"
       : status === "partial_success" || status === "rule_only" || status === "paused"
         ? "gold"
         : status === "failed" || status === "cancelled"
           ? "red"
           : "blue";
   return <Tag color={color}>{status}</Tag>;
+};
+
+const RiskTag = ({ risk }: { risk?: string | null }) => {
+  const color = risk === "critical" ? "red" : risk === "major" ? "orange" : risk === "minor" ? "blue" : "default";
+  return <Tag color={color}>{risk || "-"}</Tag>;
 };
 
 const canRestartProfileJob = (job: ChapterProfileGenerationJob) =>

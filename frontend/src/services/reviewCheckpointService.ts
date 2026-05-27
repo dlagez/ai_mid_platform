@@ -1,4 +1,5 @@
 import { apiClient } from "./apiClient";
+import type { StandardClause, StandardDocument } from "./standardService";
 
 export type ReviewCheckpoint = {
   id: number;
@@ -58,6 +59,7 @@ export type ReviewCheckpointPayload = {
 };
 
 export type ReviewCheckpointQuery = {
+  standard_id?: number;
   status?: string;
   checkpoint_type?: string;
   domain?: string;
@@ -72,6 +74,12 @@ export type ReviewCheckpointListResult = {
   total: number;
   page: number;
   page_size: number;
+};
+
+export type ReviewCheckpointTreeResult = {
+  standard: StandardDocument;
+  clauses: StandardClause[];
+  checkpoints: ReviewCheckpoint[];
 };
 
 export type GenerateCheckpointsRequest = {
@@ -141,6 +149,14 @@ export type CheckpointGenerationItemListResult = {
   page_size: number;
 };
 
+export type CheckpointGenerationTreeResult = {
+  job: CheckpointGenerationJob;
+  standard: StandardDocument | null;
+  clauses: StandardClause[];
+  items: CheckpointGenerationItem[];
+  checkpoints: ReviewCheckpoint[];
+};
+
 export type CheckpointGenerationJobQuery = {
   standard_id?: number;
   status?: string;
@@ -157,6 +173,11 @@ export type CheckpointGenerationItemQuery = {
 
 export const listReviewCheckpoints = async (query: ReviewCheckpointQuery = {}) => {
   const { data } = await apiClient.get<ReviewCheckpointListResult>("/review-checkpoints", { params: query });
+  return data;
+};
+
+export const getReviewCheckpointTree = async (query: ReviewCheckpointQuery & { standard_id: number }) => {
+  const { data } = await apiClient.get<ReviewCheckpointTreeResult>("/review-checkpoints/tree", { params: query });
   return data;
 };
 
@@ -209,6 +230,13 @@ export const listCheckpointGenerationJobItems = async (
   const { data } = await apiClient.get<CheckpointGenerationItemListResult>(
     `/review-checkpoints/generation-jobs/${jobId}/items`,
     { params: query },
+  );
+  return data;
+};
+
+export const getCheckpointGenerationTree = async (jobId: number) => {
+  const { data } = await apiClient.get<CheckpointGenerationTreeResult>(
+    `/review-checkpoints/generation-jobs/${jobId}/tree`,
   );
   return data;
 };

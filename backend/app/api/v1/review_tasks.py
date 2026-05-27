@@ -9,7 +9,7 @@ from app.chapter_profile.schemas import BuildChapterProfilesResponse
 from app.chapter_profile.service import ChapterProfileService, get_chapter_profile_service
 from app.checkpoint_executor.schemas import RunCheckpointReviewResponse
 from app.checkpoint_executor.service import CheckpointExecutorService, get_checkpoint_executor_service
-from app.checkpoint_matcher.schemas import MatchCheckpointsResponse
+from app.checkpoint_matcher.schemas import CheckpointMatchListResponse, MatchCheckpointsResponse
 from app.checkpoint_matcher.service import CheckpointMatcherService, get_checkpoint_matcher_service
 from app.db.session import get_db
 from app.review_issues.schemas import ReviewIssueList
@@ -114,6 +114,17 @@ async def match_review_checkpoints(
     db: Annotated[Session, Depends(get_db)],
 ) -> MatchCheckpointsResponse:
     return service.match_task_checkpoints(db, task_id)
+
+
+@router.get("/{task_id}/checkpoint-matches", response_model=CheckpointMatchListResponse)
+async def list_review_checkpoint_matches(
+    task_id: int,
+    _: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[CheckpointMatcherService, Depends(get_checkpoint_matcher_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> CheckpointMatchListResponse:
+    items = service.list_task_matches(db, task_id)
+    return CheckpointMatchListResponse(items=items, total=len(items))
 
 
 @router.post("/{task_id}/run-checkpoint-review", response_model=RunCheckpointReviewResponse)

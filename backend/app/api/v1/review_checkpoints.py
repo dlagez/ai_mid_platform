@@ -11,11 +11,13 @@ from app.review_checkpoints.schemas import (
     CheckpointGenerationJobCreateResponse,
     CheckpointGenerationJobList,
     CheckpointGenerationJobRead,
+    CheckpointGenerationTreeResponse,
     GenerateCheckpointsFromClausesRequest,
     GenerateCheckpointsFromClausesResponse,
     ReviewCheckpointCreate,
     ReviewCheckpointList,
     ReviewCheckpointRead,
+    ReviewCheckpointTreeResponse,
     ReviewCheckpointUpdate,
 )
 from app.review_checkpoints.service import ReviewCheckpointService, get_review_checkpoint_service
@@ -31,6 +33,7 @@ async def list_review_checkpoints(
     service: Annotated[ReviewCheckpointService, Depends(get_review_checkpoint_service)],
     db: Annotated[Session, Depends(get_db)],
     status: str | None = None,
+    standard_id: int | None = None,
     checkpoint_type: str | None = None,
     domain: str | None = None,
     work_type: str | None = None,
@@ -40,6 +43,7 @@ async def list_review_checkpoints(
 ) -> ReviewCheckpointList:
     items, total = service.list_checkpoints(
         db,
+        standard_id=standard_id,
         status=status,
         checkpoint_type=checkpoint_type,
         domain=domain,
@@ -49,6 +53,30 @@ async def list_review_checkpoints(
         page_size=page_size,
     )
     return ReviewCheckpointList(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.get("/tree", response_model=ReviewCheckpointTreeResponse)
+async def get_review_checkpoint_tree(
+    _: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[ReviewCheckpointService, Depends(get_review_checkpoint_service)],
+    db: Annotated[Session, Depends(get_db)],
+    standard_id: Annotated[int, Query(ge=1)] = ...,
+    status: str | None = None,
+    checkpoint_type: str | None = None,
+    domain: str | None = None,
+    work_type: str | None = None,
+    keyword: str | None = None,
+) -> ReviewCheckpointTreeResponse:
+    standard, clauses, checkpoints = service.get_checkpoint_tree(
+        db,
+        standard_id=standard_id,
+        status=status,
+        checkpoint_type=checkpoint_type,
+        domain=domain,
+        work_type=work_type,
+        keyword=keyword,
+    )
+    return ReviewCheckpointTreeResponse(standard=standard, clauses=clauses, checkpoints=checkpoints)
 
 
 @router.post("", response_model=ReviewCheckpointRead)
@@ -125,6 +153,23 @@ async def list_review_checkpoint_generation_items(
     service.get_generation_job(db, job_id)
     items, total = service.list_generation_items(db, job_id=job_id, status=status, page=page, page_size=page_size)
     return CheckpointGenerationItemList(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.get("/generation-jobs/{job_id}/tree", response_model=CheckpointGenerationTreeResponse)
+async def get_review_checkpoint_generation_tree(
+    job_id: int,
+    _: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[ReviewCheckpointService, Depends(get_review_checkpoint_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> CheckpointGenerationTreeResponse:
+    job, standard, clauses, items, checkpoints = service.get_generation_job_tree(db, job_id)
+    return CheckpointGenerationTreeResponse(
+        job=job,
+        standard=standard,
+        clauses=clauses,
+        items=items,
+        checkpoints=checkpoints,
+    )
 
 
 @router.get("/generation-items", response_model=CheckpointGenerationItemList)

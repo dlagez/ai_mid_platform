@@ -1,4 +1,5 @@
 import { apiClient } from "./apiClient";
+import type { ReviewCheckpoint } from "./reviewCheckpointService";
 
 export type ReviewTask = {
   id: number;
@@ -127,6 +128,15 @@ export type CheckpointMatchResult = {
   updated_at: string;
 };
 
+export type CheckpointMatchWithCheckpoint = CheckpointMatchResult & {
+  checkpoint: ReviewCheckpoint | null;
+};
+
+export type CheckpointMatchListResult = {
+  items: CheckpointMatchWithCheckpoint[];
+  total: number;
+};
+
 export type MatchCheckpointsResult = {
   task_id: number;
   selected_count: number;
@@ -201,6 +211,11 @@ export const buildChapterProfiles = async (taskId: number) => {
 
 export const matchReviewCheckpoints = async (taskId: number) => {
   const { data } = await apiClient.post<MatchCheckpointsResult>(`/review-tasks/${taskId}/match-checkpoints`);
+  return data;
+};
+
+export const listReviewTaskCheckpointMatches = async (taskId: number) => {
+  const { data } = await apiClient.get<CheckpointMatchListResult>(`/review-tasks/${taskId}/checkpoint-matches`);
   return data;
 };
 

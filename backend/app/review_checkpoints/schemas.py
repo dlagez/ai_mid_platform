@@ -4,6 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from app.standards.schemas import StandardClauseRead, StandardDocumentRead
+
 
 class ReviewCheckpointCreate(BaseModel):
     checkpoint_code: str | None = None
@@ -171,3 +173,17 @@ class CheckpointGenerationItemList(BaseModel):
 
 class CheckpointGenerationJobCreateResponse(BaseModel):
     job: CheckpointGenerationJobRead
+
+
+class CheckpointGenerationTreeResponse(BaseModel):
+    job: CheckpointGenerationJobRead
+    standard: StandardDocumentRead | None
+    clauses: list[StandardClauseRead]
+    items: list[CheckpointGenerationItemRead]
+    checkpoints: list[ReviewCheckpointRead]
+
+
+class ReviewCheckpointTreeResponse(BaseModel):
+    standard: StandardDocumentRead
+    clauses: list[StandardClauseRead]
+    checkpoints: list[ReviewCheckpointRead]

@@ -349,3 +349,8 @@ export const listChapterProfileJobProfiles = async (
   );
   return data;
 };
+
+export const getChapterProfileJobSections = async (jobId: number) => {
+  const { data } = await apiClient.get<DocumentParseResult>(`/documents/chapter-profile-jobs/${jobId}/sections`);
+  return data;
+};

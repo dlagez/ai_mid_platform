@@ -311,6 +311,21 @@ async def list_chapter_profile_job_profiles(
     return ChapterReviewProfileList(items=items, total=total, page=page, page_size=page_size)
 
 
+@router.get("/chapter-profile-jobs/{job_id}/sections", response_model=DocumentParseResponse)
+async def get_chapter_profile_job_sections(
+    job_id: int,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],
+    profile_service: Annotated[ChapterProfileService, Depends(get_chapter_profile_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> DocumentParseResponse:
+    job = profile_service.get_generation_job(db, job_id)
+    record = db.query(PlanDocument).filter(PlanDocument.id == job.document_id).first()
+    if not record:
+        raise PlatformError(f"Document id={job.document_id} not found", status_code=404)
+    result, sections = profile_service.get_generation_job_sections(db, job_id)
+    return _to_document_parse_response(record, result, sections, result.section_parse_mode if result else record.section_parse_mode)
+
+
 @router.get("/parse-jobs/list", response_model=list[ParseJobItem])
 async def list_parse_jobs(
     _: Annotated[CurrentUser, Depends(require_permission("knowledge:read"))],

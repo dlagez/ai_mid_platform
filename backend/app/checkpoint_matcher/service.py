@@ -16,6 +16,17 @@ SELECTED_THRESHOLD = 0.45
 
 
 class CheckpointMatcherService:
+    def list_task_matches(self, db: Session, task_id: int) -> list[CheckpointMatchResult]:
+        task = db.query(ReviewTask).filter(ReviewTask.id == task_id).first()
+        if not task:
+            raise PlatformError(f"Review task id={task_id} not found", status_code=404)
+        return (
+            db.query(CheckpointMatchResult)
+            .filter(CheckpointMatchResult.task_id == task.id)
+            .order_by(CheckpointMatchResult.section_id.asc(), CheckpointMatchResult.match_score.desc(), CheckpointMatchResult.id.asc())
+            .all()
+        )
+
     def match_task_checkpoints(self, db: Session, task_id: int) -> dict[str, Any]:
         task = db.query(ReviewTask).filter(ReviewTask.id == task_id).first()
         if not task:

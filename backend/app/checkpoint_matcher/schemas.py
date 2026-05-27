@@ -4,6 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from app.review_checkpoints.schemas import ReviewCheckpointRead
+
 
 class CheckpointMatchResultRead(BaseModel):
     id: int
@@ -25,3 +27,12 @@ class MatchCheckpointsResponse(BaseModel):
     selected_count: int
     candidate_count: int
     items: list[CheckpointMatchResultRead]
+
+
+class CheckpointMatchWithCheckpointRead(CheckpointMatchResultRead):
+    checkpoint: ReviewCheckpointRead | None = None
+
+
+class CheckpointMatchListResponse(BaseModel):
+    items: list[CheckpointMatchWithCheckpointRead]
+    total: int

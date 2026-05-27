@@ -239,6 +239,28 @@ class ChapterProfileService:
             raise PlatformError(f"Chapter profile generation job id={job_id} not found", status_code=404)
         return job
 
+    def get_generation_job_sections(self, db: Session, job_id: int) -> tuple[PlanParseResult | None, list[PlanSection]]:
+        job = self.get_generation_job(db, job_id)
+        first_item = (
+            db.query(ChapterProfileGenerationItem)
+            .filter(ChapterProfileGenerationItem.job_id == job.id, ChapterProfileGenerationItem.section_id.isnot(None))
+            .order_by(ChapterProfileGenerationItem.id.asc())
+            .first()
+        )
+        if not first_item:
+            return None, []
+        first_section = db.query(PlanSection).filter(PlanSection.id == first_item.section_id).first()
+        if not first_section:
+            return None, []
+        result = db.query(PlanParseResult).filter(PlanParseResult.id == first_section.parse_result_id).first()
+        sections = (
+            db.query(PlanSection)
+            .filter(PlanSection.parse_result_id == first_section.parse_result_id)
+            .order_by(PlanSection.sort_no.asc(), PlanSection.id.asc())
+            .all()
+        )
+        return result, sections
+
     def restart_generation_job(
         self,
         db: Session,

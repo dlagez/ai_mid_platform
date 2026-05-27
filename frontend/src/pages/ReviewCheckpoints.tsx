@@ -1,23 +1,29 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useGetIdentity } from "@refinedev/core";
 import {
   Button,
   Card,
+  Col,
+  Descriptions,
+  Empty,
   Form,
   Input,
   InputNumber,
   Modal,
   Popconfirm,
   Progress,
+  Row,
   Select,
   Space,
   Switch,
   Table,
+  Tabs,
   Tag,
+  Tree,
   Typography,
   message,
 } from "antd";
-import type { TablePaginationConfig } from "antd";
+import type { DataNode } from "antd/es/tree";
 import {
   DeleteOutlined,
   PlusOutlined,
@@ -29,14 +35,16 @@ import type { CurrentUser } from "../types/platform";
 import {
   createReviewCheckpoint,
   deleteReviewCheckpoint,
+  getReviewCheckpointTree,
   listCheckpointGenerationJobs,
-  listReviewCheckpoints,
   updateReviewCheckpoint,
   type CheckpointGenerationJob,
   type ReviewCheckpoint,
   type ReviewCheckpointPayload,
   type ReviewCheckpointQuery,
+  type ReviewCheckpointTreeResult,
 } from "../services/reviewCheckpointService";
+import { listStandards, type StandardClause, type StandardDocument } from "../services/standardService";
 
 const { TextArea } = Input;
 
@@ -56,29 +64,59 @@ type CheckpointFormValues = Omit<ReviewCheckpointPayload, "parameters" | "applic
 export const ReviewCheckpointsPage = () => {
   const { data: user } = useGetIdentity<CurrentUser>();
   const isAdmin = user?.role === "admin";
-  const [items, setItems] = useState<ReviewCheckpoint[]>([]);
+  const [standards, setStandards] = useState<StandardDocument[]>([]);
   const [recentJobs, setRecentJobs] = useState<CheckpointGenerationJob[]>([]);
-  const [total, setTotal] = useState(0);
-  const [query, setQuery] = useState<ReviewCheckpointQuery>({ page: 1, page_size: 20 });
+  const [selectedStandardId, setSelectedStandardId] = useState<number | null>(null);
+  const [checkpointTree, setCheckpointTree] = useState<ReviewCheckpointTreeResult | null>(null);
+  const [selectedClauseId, setSelectedClauseId] = useState<number | null>(null);
+  const [query, setQuery] = useState<ReviewCheckpointQuery>({});
   const [editing, setEditing] = useState<ReviewCheckpoint | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedCheckpointId, setSelectedCheckpointId] = useState<number | null>(null);
-  const [loading, setLoading] = useState({ list: false, save: false, create: false, delete: false, jobs: false });
+  const [loading, setLoading] = useState({ standards: false, tree: false, save: false, create: false, delete: false, jobs: false });
   const [filterForm] = Form.useForm<CheckpointFilterValues>();
   const [editForm] = Form.useForm<CheckpointFormValues>();
   const [createForm] = Form.useForm<CheckpointFormValues>();
 
-  const load = async (nextQuery = query) => {
-    setLoading((current) => ({ ...current, list: true }));
+  const loadStandards = async () => {
+    setLoading((current) => ({ ...current, standards: true }));
     try {
-      const result = await listReviewCheckpoints(nextQuery);
-      setItems(result.items);
-      setTotal(result.total);
-      setQuery({ ...nextQuery, page: result.page, page_size: result.page_size });
+      const result = await listStandards();
+      setStandards(result.items);
+      const nextStandardId = selectedStandardId && result.items.some((standard) => standard.id === selectedStandardId)
+        ? selectedStandardId
+        : result.items[0]?.id ?? null;
+      setSelectedStandardId(nextStandardId);
+      if (nextStandardId) {
+        await loadCheckpointTree(nextStandardId, query);
+      }
     } catch {
-      message.error("Failed to load review checkpoints.");
+      message.error("Failed to load standards.");
     } finally {
-      setLoading((current) => ({ ...current, list: false }));
+      setLoading((current) => ({ ...current, standards: false }));
+    }
+  };
+
+  const loadCheckpointTree = async (standardId = selectedStandardId, nextQuery = query, preserveSelection = true) => {
+    if (!standardId) {
+      setCheckpointTree(null);
+      setSelectedClauseId(null);
+      return;
+    }
+    setLoading((current) => ({ ...current, tree: true }));
+    try {
+      const result = await getReviewCheckpointTree({ ...nextQuery, standard_id: standardId });
+      setCheckpointTree(result);
+      setQuery(nextQuery);
+      setSelectedClauseId((current) =>
+        preserveSelection && current && result.clauses.some((clause) => clause.id === current)
+          ? current
+          : findFirstCheckpointClauseId(result.checkpoints) ?? result.clauses[0]?.id ?? null,
+      );
+    } catch {
+      message.error("Failed to load review checkpoint tree.");
+    } finally {
+      setLoading((current) => ({ ...current, tree: false }));
     }
   };
 
@@ -95,21 +133,20 @@ export const ReviewCheckpointsPage = () => {
   };
 
   useEffect(() => {
-    void load();
+    void loadStandards();
     void loadRecentJobs();
   }, []);
 
   const applyFilter = async () => {
     const values = filterForm.getFieldsValue();
-    await load({ ...values, page: 1, page_size: query.page_size ?? 20 });
+    setSelectedClauseId(null);
+    await loadCheckpointTree(selectedStandardId, values, false);
   };
 
-  const handleTableChange = async (pagination: TablePaginationConfig) => {
-    await load({
-      ...query,
-      page: pagination.current ?? 1,
-      page_size: pagination.pageSize ?? 20,
-    });
+  const selectStandard = async (standardId: number) => {
+    setSelectedStandardId(standardId);
+    setSelectedClauseId(null);
+    await loadCheckpointTree(standardId, query, false);
   };
 
   const openEdit = (checkpoint: ReviewCheckpoint) => {
@@ -120,6 +157,10 @@ export const ReviewCheckpointsPage = () => {
   const openCreate = () => {
     createForm.resetFields();
     createForm.setFieldsValue({
+      standard_id: selectedStandardId ?? undefined,
+      clause_id: selectedClause?.id,
+      clause_no: selectedClause?.clause_no,
+      clause_text: selectedClause?.content,
       checkpoint_type: "required_content",
       risk_level: "major",
       status: "active",
@@ -146,7 +187,7 @@ export const ReviewCheckpointsPage = () => {
       const result = await updateReviewCheckpoint(editing.id, payload);
       setEditing(result);
       message.success("Checkpoint saved.");
-      await load();
+      await loadCheckpointTree();
     } catch {
       message.error("Failed to save checkpoint.");
     } finally {
@@ -169,7 +210,7 @@ export const ReviewCheckpointsPage = () => {
       await createReviewCheckpoint(payload);
       message.success("Checkpoint created.");
       setCreateOpen(false);
-      await load();
+      await loadCheckpointTree();
     } catch {
       message.error("Failed to create checkpoint.");
     } finally {
@@ -182,13 +223,20 @@ export const ReviewCheckpointsPage = () => {
     try {
       await deleteReviewCheckpoint(checkpoint.id);
       message.success("Checkpoint archived.");
-      await load();
+      await loadCheckpointTree();
     } catch {
       message.error("Failed to archive checkpoint.");
     } finally {
       setLoading((current) => ({ ...current, delete: false }));
     }
   };
+
+  const checkpointsByClauseId = useMemo(() => groupCheckpointsByClauseId(checkpointTree?.checkpoints ?? []), [checkpointTree]);
+  const selectedClause = useMemo(
+    () => (checkpointTree && selectedClauseId ? checkpointTree.clauses.find((clause) => clause.id === selectedClauseId) ?? null : null),
+    [checkpointTree, selectedClauseId],
+  );
+  const selectedCheckpoints = selectedClause ? checkpointsByClauseId.get(selectedClause.id) ?? [] : [];
 
   return (
     <div className="page">
@@ -197,9 +245,9 @@ export const ReviewCheckpointsPage = () => {
         <Space>
           <Button
             icon={<ReloadOutlined />}
-            loading={loading.list || loading.jobs}
+            loading={loading.standards || loading.tree || loading.jobs}
             onClick={() => {
-              void load();
+              void loadStandards();
               void loadRecentJobs();
             }}
           >
@@ -241,6 +289,22 @@ export const ReviewCheckpointsPage = () => {
 
       <Card>
         <Form form={filterForm} layout="inline" className="table-filter-form">
+          <Form.Item label="Standard">
+            <Select
+              showSearch
+              style={{ width: 320 }}
+              loading={loading.standards}
+              value={selectedStandardId}
+              optionFilterProp="label"
+              options={standards.map((standard) => ({
+                value: standard.id,
+                label: standard.standard_code
+                  ? `${standard.standard_code} ${standard.standard_name}`
+                  : standard.standard_name,
+              }))}
+              onChange={(value) => void selectStandard(value)}
+            />
+          </Form.Item>
           <Form.Item name="status" label="Status">
             <Select allowClear style={{ width: 150 }} options={checkpointStatusOptions} />
           </Form.Item>
@@ -262,74 +326,53 @@ export const ReviewCheckpointsPage = () => {
             </Button>
           </Form.Item>
         </Form>
+      </Card>
 
-        <Table<ReviewCheckpoint>
-          rowKey="id"
-          loading={loading.list}
-          dataSource={items}
-          onRow={(record) => ({
-            onClick: () => {
-              setSelectedCheckpointId(record.id);
-              openEdit(record);
-            },
-            className: `document-row${selectedCheckpointId === record.id ? " document-row-selected" : ""}`,
-          })}
-          pagination={{
-            current: query.page,
-            pageSize: query.page_size,
-            total,
-            showSizeChanger: true,
-          }}
-          onChange={(pagination) => void handleTableChange(pagination)}
-          columns={[
-            { title: "Code", dataIndex: "checkpoint_code", width: 140, ellipsis: true },
-            { title: "Checkpoint", dataIndex: "checkpoint_name", ellipsis: true },
-            { title: "Type", dataIndex: "checkpoint_type", width: 190 },
-            { title: "Domain", dataIndex: "domain", width: 130 },
-            { title: "Work Type", dataIndex: "work_type", width: 130 },
-            { title: "Clause", dataIndex: "clause_no", width: 120 },
-            {
-              title: "Targets",
-              dataIndex: "target_objects",
-              width: 220,
-              render: (values: string[]) => <TagList values={values} />,
-            },
-            {
-              title: "Risk",
-              dataIndex: "risk_level",
-              width: 100,
-              render: (value: string) => <RiskTag risk={value} />,
-            },
-            {
-              title: "Status",
-              dataIndex: "status",
-              width: 120,
-              render: (value: string) => <StatusTag status={value} />,
-            },
-            ...(isAdmin
-              ? [
-                  {
-                    title: "Actions",
-                    width: 120,
-                    render: (_: unknown, record: ReviewCheckpoint) => (
-                      <Space size={6} wrap onClick={(e) => e.stopPropagation()}>
-                        <Popconfirm
-                          title="Archive this checkpoint?"
-                          okText="Archive"
-                          okButtonProps={{ danger: true }}
-                          onConfirm={() => void archive(record)}
-                        >
-                          <Button size="small" danger icon={<DeleteOutlined />} loading={loading.delete}>
-                            Archive
-                          </Button>
-                        </Popconfirm>
-                      </Space>
-                    ),
-                  } as const,
-                ]
-              : []),
-          ]}
-        />
+      <Card
+        title={
+          checkpointTree?.standard
+            ? `Review Checkpoint Tree - ${checkpointTree.standard.standard_name}`
+            : "Review Checkpoint Tree"
+        }
+        loading={loading.tree}
+      >
+        <Row gutter={[16, 16]}>
+          <Col xs={24} lg={9}>
+            <div className="plan-section-tree review-checkpoint-tree">
+              {checkpointTree?.clauses.length ? (
+                <Tree
+                  blockNode
+                  defaultExpandAll
+                  selectedKeys={selectedClauseId ? [String(selectedClauseId)] : []}
+                  treeData={toClauseTreeData(checkpointTree.clauses, checkpointsByClauseId)}
+                  onSelect={(keys) => setSelectedClauseId(keys[0] ? Number(keys[0]) : null)}
+                />
+              ) : (
+                <Empty description="No standard clause tree found." />
+              )}
+            </div>
+          </Col>
+          <Col xs={24} lg={15}>
+            <div className="plan-section-content review-checkpoint-detail">
+              {selectedClause ? (
+                <ClauseCheckpointPanel
+                  clause={selectedClause}
+                  checkpoints={selectedCheckpoints}
+                  isAdmin={isAdmin}
+                  selectedCheckpointId={selectedCheckpointId}
+                  loadingDelete={loading.delete}
+                  onEdit={(checkpoint) => {
+                    setSelectedCheckpointId(checkpoint.id);
+                    openEdit(checkpoint);
+                  }}
+                  onArchive={archive}
+                />
+              ) : (
+                <Empty description="Select a clause" />
+              )}
+            </div>
+          </Col>
+        </Row>
       </Card>
 
       <Modal
@@ -366,6 +409,151 @@ export const ReviewCheckpointsPage = () => {
     </div>
   );
 };
+
+const ClauseCheckpointPanel = ({
+  clause,
+  checkpoints,
+  isAdmin,
+  selectedCheckpointId,
+  loadingDelete,
+  onEdit,
+  onArchive,
+}: {
+  clause: StandardClause;
+  checkpoints: ReviewCheckpoint[];
+  isAdmin: boolean;
+  selectedCheckpointId: number | null;
+  loadingDelete: boolean;
+  onEdit: (checkpoint: ReviewCheckpoint) => void;
+  onArchive: (checkpoint: ReviewCheckpoint) => void;
+}) => (
+  <Space direction="vertical" size={16} style={{ width: "100%" }}>
+    <div>
+      <Space size={8} wrap>
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          {clause.title || clause.clause_no || `Clause #${clause.id}`}
+        </Typography.Title>
+        {clause.clause_no ? <Tag>{clause.clause_no}</Tag> : null}
+        {clause.is_mandatory ? <Tag color="red">mandatory</Tag> : null}
+        <Tag color={checkpoints.length ? "blue" : "default"}>C {checkpoints.length}</Tag>
+      </Space>
+      <Typography.Text type="secondary">
+        level {clause.level} / clause #{clause.id}
+      </Typography.Text>
+    </div>
+    <Tabs
+      items={[
+        {
+          key: "clause",
+          label: "Clause",
+          children: (
+            <Typography.Paragraph className="chapter-profile-text-block">
+              {clause.content || "No content found for this clause."}
+            </Typography.Paragraph>
+          ),
+        },
+        {
+          key: "checkpoints",
+          label: `Checkpoints (${checkpoints.length})`,
+          children: checkpoints.length ? (
+            <CheckpointTable
+              checkpoints={checkpoints}
+              isAdmin={isAdmin}
+              selectedCheckpointId={selectedCheckpointId}
+              loadingDelete={loadingDelete}
+              onEdit={onEdit}
+              onArchive={onArchive}
+            />
+          ) : (
+            <Empty description="No checkpoints for this clause." />
+          ),
+        },
+      ]}
+    />
+  </Space>
+);
+
+const CheckpointTable = ({
+  checkpoints,
+  isAdmin,
+  selectedCheckpointId,
+  loadingDelete,
+  onEdit,
+  onArchive,
+}: {
+  checkpoints: ReviewCheckpoint[];
+  isAdmin: boolean;
+  selectedCheckpointId: number | null;
+  loadingDelete: boolean;
+  onEdit: (checkpoint: ReviewCheckpoint) => void;
+  onArchive: (checkpoint: ReviewCheckpoint) => void;
+}) => (
+  <Table<ReviewCheckpoint>
+    rowKey="id"
+    size="small"
+    dataSource={checkpoints}
+    pagination={{ pageSize: 8 }}
+    onRow={(record) => ({
+      onClick: () => onEdit(record),
+      className: `document-row${selectedCheckpointId === record.id ? " document-row-selected" : ""}`,
+    })}
+    columns={[
+      { title: "Code", dataIndex: "checkpoint_code", width: 130, ellipsis: true },
+      { title: "Checkpoint", dataIndex: "checkpoint_name", ellipsis: true },
+      { title: "Type", dataIndex: "checkpoint_type", width: 180 },
+      { title: "Risk", dataIndex: "risk_level", width: 100, render: (value: string) => <RiskTag risk={value} /> },
+      { title: "Status", dataIndex: "status", width: 110, render: (value: string) => <StatusTag status={value} /> },
+      {
+        title: "Targets",
+        dataIndex: "target_objects",
+        width: 180,
+        render: (values: string[]) => <TagList values={values} />,
+      },
+      ...(isAdmin
+        ? [
+            {
+              title: "Actions",
+              width: 120,
+              render: (_: unknown, record: ReviewCheckpoint) => (
+                <Space size={6} wrap onClick={(event) => event.stopPropagation()}>
+                  <Popconfirm
+                    title="Archive this checkpoint?"
+                    okText="Archive"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={() => onArchive(record)}
+                  >
+                    <Button size="small" danger icon={<DeleteOutlined />} loading={loadingDelete}>
+                      Archive
+                    </Button>
+                  </Popconfirm>
+                </Space>
+              ),
+            } as const,
+          ]
+        : []),
+    ]}
+    expandable={{
+      expandedRowRender: (record) => (
+        <Descriptions size="small" column={1}>
+          <Descriptions.Item label="Goal">{record.check_goal || "-"}</Descriptions.Item>
+          <Descriptions.Item label="Method">{record.check_method || "-"}</Descriptions.Item>
+          <Descriptions.Item label="Parameters">
+            <TagList values={record.target_parameters} />
+          </Descriptions.Item>
+          <Descriptions.Item label="Keywords">
+            <TagList values={record.keywords} />
+          </Descriptions.Item>
+          <Descriptions.Item label="Expected">
+            <TagList values={record.expected_items} />
+          </Descriptions.Item>
+          <Descriptions.Item label="Forbidden">
+            <TagList values={record.forbidden_items} />
+          </Descriptions.Item>
+        </Descriptions>
+      ),
+    }}
+  />
+);
 
 const CheckpointForm = ({
   form,
@@ -496,6 +684,57 @@ const riskLevelOptions = [
   { value: "minor", label: "minor" },
   { value: "suggestion", label: "suggestion" },
 ];
+
+const toClauseTreeData = (
+  clauses: StandardClause[],
+  checkpointsByClauseId: Map<number, ReviewCheckpoint[]>,
+): DataNode[] => {
+  const childrenByParentId = new Map<number | null, StandardClause[]>();
+  for (const clause of clauses) {
+    const siblings = childrenByParentId.get(clause.parent_id) ?? [];
+    siblings.push(clause);
+    childrenByParentId.set(clause.parent_id, siblings);
+  }
+
+  const clauseIds = new Set(clauses.map((clause) => clause.id));
+  const roots = clauses.filter((clause) => !clause.parent_id || !clauseIds.has(clause.parent_id));
+  return roots.map((clause) => toClauseNode(clause, childrenByParentId, checkpointsByClauseId));
+};
+
+const toClauseNode = (
+  clause: StandardClause,
+  childrenByParentId: Map<number | null, StandardClause[]>,
+  checkpointsByClauseId: Map<number, ReviewCheckpoint[]>,
+): DataNode => {
+  const checkpointCount = checkpointsByClauseId.get(clause.id)?.length ?? 0;
+  const label = clause.title || clause.clause_no || `Clause #${clause.id}`;
+  return {
+    key: String(clause.id),
+    title: (
+      <Space size={6} wrap>
+        <span>{label}</span>
+        {checkpointCount ? <Tag color="blue">C {checkpointCount}</Tag> : null}
+        {clause.is_mandatory ? <Tag color="red">mandatory</Tag> : null}
+      </Space>
+    ),
+    children: (childrenByParentId.get(clause.id) ?? []).map((child) =>
+      toClauseNode(child, childrenByParentId, checkpointsByClauseId),
+    ),
+  };
+};
+
+const groupCheckpointsByClauseId = (checkpoints: ReviewCheckpoint[]) => {
+  const grouped = new Map<number, ReviewCheckpoint[]>();
+  for (const checkpoint of checkpoints) {
+    if (checkpoint.clause_id != null) {
+      grouped.set(checkpoint.clause_id, [...(grouped.get(checkpoint.clause_id) ?? []), checkpoint]);
+    }
+  }
+  return grouped;
+};
+
+const findFirstCheckpointClauseId = (checkpoints: ReviewCheckpoint[]) =>
+  checkpoints.find((checkpoint) => checkpoint.clause_id != null)?.clause_id ?? null;
 
 const TagList = ({ values }: { values?: string[] }) => (
   <Space size={4} wrap>

@@ -94,6 +94,40 @@ body {
   word-break: break-word;
 }
 
+.chapter-profile-section-tree {
+  max-height: 720px;
+}
+
+.chapter-profile-section-detail {
+  max-height: 720px;
+}
+
+.chapter-profile-text-block {
+  max-height: 520px;
+  overflow: auto;
+  margin-bottom: 0;
+}
+
+.chapter-profile-detail-card {
+  border-radius: 8px;
+}
+
+.checkpoint-generation-tree {
+  max-height: 720px;
+}
+
+.checkpoint-generation-detail {
+  max-height: 720px;
+}
+
+.review-checkpoint-tree {
+  max-height: 720px;
+}
+
+.review-checkpoint-detail {
+  max-height: 720px;
+}
+
 .parse-progress-panel {
   margin-bottom: 12px;
   padding: 12px;

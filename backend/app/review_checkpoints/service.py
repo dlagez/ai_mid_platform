@@ -92,6 +92,7 @@ class ReviewCheckpointService:
         self,
         db: Session,
         *,
+        standard_id: int | None = None,
         status: str | None = None,
         checkpoint_type: str | None = None,
         domain: str | None = None,
@@ -101,6 +102,8 @@ class ReviewCheckpointService:
         page_size: int = 20,
     ) -> tuple[list[ReviewCheckpoint], int]:
         query = db.query(ReviewCheckpoint).filter(ReviewCheckpoint.status != "archived")
+        if standard_id:
+            query = query.filter(ReviewCheckpoint.standard_id == standard_id)
         if status:
             query = query.filter(ReviewCheckpoint.status == status)
         if checkpoint_type:
@@ -127,6 +130,55 @@ class ReviewCheckpointService:
             .all()
         )
         return items, total
+
+    def get_checkpoint_tree(
+        self,
+        db: Session,
+        *,
+        standard_id: int,
+        status: str | None = None,
+        checkpoint_type: str | None = None,
+        domain: str | None = None,
+        work_type: str | None = None,
+        keyword: str | None = None,
+    ) -> tuple[StandardDocument, list[StandardClause], list[ReviewCheckpoint]]:
+        standard = db.query(StandardDocument).filter(StandardDocument.id == standard_id).first()
+        if not standard or standard.status == "archived":
+            raise PlatformError(f"Standard document id={standard_id} not found", status_code=404)
+
+        clauses = (
+            db.query(StandardClause)
+            .filter(StandardClause.standard_id == standard.id)
+            .order_by(StandardClause.order_no.asc(), StandardClause.id.asc())
+            .all()
+        )
+        query = db.query(ReviewCheckpoint).filter(
+            ReviewCheckpoint.standard_id == standard.id,
+            ReviewCheckpoint.status != "archived",
+        )
+        if status:
+            query = query.filter(ReviewCheckpoint.status == status)
+        if checkpoint_type:
+            query = query.filter(ReviewCheckpoint.checkpoint_type == checkpoint_type)
+        if domain:
+            query = query.filter(ReviewCheckpoint.domain == domain)
+        if work_type:
+            query = query.filter(or_(ReviewCheckpoint.work_type == work_type, ReviewCheckpoint.work_type.is_(None), ReviewCheckpoint.work_type == ""))
+        if keyword:
+            like = f"%{keyword}%"
+            query = query.filter(
+                or_(
+                    ReviewCheckpoint.checkpoint_name.ilike(like),
+                    ReviewCheckpoint.check_goal.ilike(like),
+                    ReviewCheckpoint.clause_text.ilike(like),
+                    cast(ReviewCheckpoint.keywords, String).ilike(like),
+                )
+            )
+        checkpoints = (
+            query.order_by(ReviewCheckpoint.clause_id.asc(), ReviewCheckpoint.priority.desc(), ReviewCheckpoint.id.asc())
+            .all()
+        )
+        return standard, clauses, checkpoints
 
     def get_checkpoint(self, db: Session, checkpoint_id: int) -> ReviewCheckpoint:
         row = db.query(ReviewCheckpoint).filter(ReviewCheckpoint.id == checkpoint_id).first()
@@ -266,6 +318,64 @@ class ReviewCheckpointService:
         if not row:
             raise PlatformError(f"Checkpoint generation job id={job_id} not found", status_code=404)
         return row
+
+    def get_generation_job_tree(
+        self,
+        db: Session,
+        job_id: int,
+    ) -> tuple[
+        ReviewCheckpointGenerationJob,
+        StandardDocument | None,
+        list[StandardClause],
+        list[ReviewCheckpointGenerationItem],
+        list[ReviewCheckpoint],
+    ]:
+        job = self.get_generation_job(db, job_id)
+        items = (
+            db.query(ReviewCheckpointGenerationItem)
+            .filter(ReviewCheckpointGenerationItem.job_id == job.id)
+            .order_by(ReviewCheckpointGenerationItem.clause_id.asc(), ReviewCheckpointGenerationItem.id.asc())
+            .all()
+        )
+        standard_id = job.standard_id or next((item.standard_id for item in items if item.standard_id), None)
+        standard = (
+            db.query(StandardDocument).filter(StandardDocument.id == standard_id).first()
+            if standard_id
+            else None
+        )
+        if standard_id:
+            clauses = (
+                db.query(StandardClause)
+                .filter(StandardClause.standard_id == standard_id)
+                .order_by(StandardClause.order_no.asc(), StandardClause.id.asc())
+                .all()
+            )
+        else:
+            clause_ids = [item.clause_id for item in items if item.clause_id]
+            clauses = (
+                db.query(StandardClause)
+                .filter(StandardClause.id.in_(clause_ids))
+                .order_by(StandardClause.order_no.asc(), StandardClause.id.asc())
+                .all()
+                if clause_ids
+                else []
+            )
+
+        checkpoint_ids = [
+            int(checkpoint_id)
+            for item in items
+            for checkpoint_id in (item.checkpoint_ids or [])
+            if checkpoint_id
+        ]
+        checkpoints = (
+            db.query(ReviewCheckpoint)
+            .filter(ReviewCheckpoint.id.in_(checkpoint_ids))
+            .order_by(ReviewCheckpoint.clause_id.asc(), ReviewCheckpoint.priority.desc(), ReviewCheckpoint.id.asc())
+            .all()
+            if checkpoint_ids
+            else []
+        )
+        return job, standard, clauses, items, checkpoints
 
     def list_generation_items(
         self,
