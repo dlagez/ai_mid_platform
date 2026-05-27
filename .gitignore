@@ -16,3 +16,4 @@ minio_data/
 backend/storage/
 
 /.claude
+/.codegraph
