@@ -239,6 +239,40 @@ async def restart_chapter_profile_job(
     return CreateChapterProfileGenerationJobResponse(job=job)
 
 
+@router.post("/chapter-profile-jobs/{job_id}/pause", response_model=CreateChapterProfileGenerationJobResponse)
+async def pause_chapter_profile_job(
+    job_id: int,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
+    profile_service: Annotated[ChapterProfileService, Depends(get_chapter_profile_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> CreateChapterProfileGenerationJobResponse:
+    job = profile_service.pause_generation_job(db, job_id)
+    return CreateChapterProfileGenerationJobResponse(job=job)
+
+
+@router.post("/chapter-profile-jobs/{job_id}/resume", response_model=CreateChapterProfileGenerationJobResponse)
+async def resume_chapter_profile_job(
+    job_id: int,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
+    profile_service: Annotated[ChapterProfileService, Depends(get_chapter_profile_service)],
+    db: Annotated[Session, Depends(get_db)],
+    concurrency: int = Query(3, ge=1, le=8),
+) -> CreateChapterProfileGenerationJobResponse:
+    job = profile_service.resume_generation_job(db, job_id, concurrency=concurrency)
+    return CreateChapterProfileGenerationJobResponse(job=job)
+
+
+@router.post("/chapter-profile-jobs/{job_id}/cancel", response_model=CreateChapterProfileGenerationJobResponse)
+async def cancel_chapter_profile_job(
+    job_id: int,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
+    profile_service: Annotated[ChapterProfileService, Depends(get_chapter_profile_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> CreateChapterProfileGenerationJobResponse:
+    job = profile_service.cancel_generation_job(db, job_id)
+    return CreateChapterProfileGenerationJobResponse(job=job)
+
+
 @router.get("/chapter-profile-jobs/{job_id}/items", response_model=ChapterProfileGenerationItemList)
 async def list_chapter_profile_job_items(
     job_id: int,

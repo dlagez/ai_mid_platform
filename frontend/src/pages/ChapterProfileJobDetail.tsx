@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeftOutlined, PlayCircleOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
-import { Button, Card, Descriptions, Form, Input, Modal, Progress, Select, Space, Table, Tag, Typography, message } from "antd";
+import { ArrowLeftOutlined, PauseCircleOutlined, PlayCircleOutlined, ReloadOutlined, SearchOutlined, StopOutlined } from "@ant-design/icons";
+import { Button, Card, Descriptions, Form, Input, Modal, Popconfirm, Progress, Select, Space, Table, Tag, Typography, message } from "antd";
 import type { TablePaginationConfig } from "antd";
 import {
+  cancelChapterProfileJob,
   getChapterProfileJob,
   listChapterProfileJobItems,
   listChapterProfileJobProfiles,
+  pauseChapterProfileJob,
   restartChapterProfileJob,
+  resumeChapterProfileJob,
   type ChapterProfileGenerationItem,
   type ChapterProfileGenerationJob,
   type ChapterReviewProfile,
@@ -59,7 +62,7 @@ export const ChapterProfileJobDetailPage = () => {
   const [editingProfile, setEditingProfile] = useState<ChapterReviewProfile | null>(null);
   const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
-  const [restarting, setRestarting] = useState(false);
+  const [queueActionLoading, setQueueActionLoading] = useState(false);
   const [filterForm] = Form.useForm<ProfileFilterValues>();
   const [profileForm] = Form.useForm<ProfileFormValues>();
 
@@ -122,7 +125,7 @@ export const ChapterProfileJobDetailPage = () => {
     if (!job) {
       return;
     }
-    setRestarting(true);
+    setQueueActionLoading(true);
     try {
       await restartChapterProfileJob(job.id);
       message.success(`Chapter profile job #${job.id} restarted.`);
@@ -130,7 +133,55 @@ export const ChapterProfileJobDetailPage = () => {
     } catch {
       message.error("Failed to restart chapter profile job.");
     } finally {
-      setRestarting(false);
+      setQueueActionLoading(false);
+    }
+  };
+
+  const handlePause = async () => {
+    if (!job) {
+      return;
+    }
+    setQueueActionLoading(true);
+    try {
+      await pauseChapterProfileJob(job.id);
+      message.success(`Chapter profile job #${job.id} paused.`);
+      await load();
+    } catch {
+      message.error("Failed to pause chapter profile job.");
+    } finally {
+      setQueueActionLoading(false);
+    }
+  };
+
+  const handleResume = async () => {
+    if (!job) {
+      return;
+    }
+    setQueueActionLoading(true);
+    try {
+      await resumeChapterProfileJob(job.id);
+      message.success(`Chapter profile job #${job.id} continued.`);
+      await load();
+    } catch {
+      message.error("Failed to continue chapter profile job.");
+    } finally {
+      setQueueActionLoading(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!job) {
+      return;
+    }
+    setQueueActionLoading(true);
+    try {
+      await cancelChapterProfileJob(job.id);
+      message.success(`Chapter profile job #${job.id} cancelled.`);
+      await load();
+    } catch {
+      message.error("Failed to cancel chapter profile job.");
+    } finally {
+      setQueueActionLoading(false);
     }
   };
 
@@ -144,12 +195,44 @@ export const ChapterProfileJobDetailPage = () => {
           </Button>
           <Button
             icon={<PlayCircleOutlined />}
-            loading={restarting}
+            loading={queueActionLoading}
             disabled={!job || !canRestartProfileJob(job)}
             onClick={() => void handleRestart()}
           >
             Restart
           </Button>
+          <Button
+            icon={<PauseCircleOutlined />}
+            loading={queueActionLoading}
+            disabled={!job || !canPauseProfileJob(job)}
+            onClick={() => void handlePause()}
+          >
+            Pause
+          </Button>
+          <Button
+            icon={<PlayCircleOutlined />}
+            loading={queueActionLoading}
+            disabled={!job || !canResumeProfileJob(job)}
+            onClick={() => void handleResume()}
+          >
+            Continue
+          </Button>
+          <Popconfirm
+            title="Cancel this chapter profile job?"
+            okText="Cancel Job"
+            cancelText="Keep"
+            disabled={!job || !canCancelProfileJob(job)}
+            onConfirm={() => void handleCancel()}
+          >
+            <Button
+              danger
+              icon={<StopOutlined />}
+              loading={queueActionLoading}
+              disabled={!job || !canCancelProfileJob(job)}
+            >
+              Cancel
+            </Button>
+          </Popconfirm>
           <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>
             Reload
           </Button>
@@ -564,13 +647,25 @@ const unique = (values: string[]) => {
 
 const StatusTag = ({ status }: { status: string }) => {
   const color =
-    status === "success" ? "green" : status === "partial_success" || status === "rule_only" ? "gold" : status === "failed" ? "red" : "blue";
+    status === "success"
+      ? "green"
+      : status === "partial_success" || status === "rule_only" || status === "paused"
+        ? "gold"
+        : status === "failed" || status === "cancelled"
+          ? "red"
+          : "blue";
   return <Tag color={color}>{status}</Tag>;
 };
 
 const canRestartProfileJob = (job: ChapterProfileGenerationJob) =>
   ["queued", "running", "failed", "partial_success"].includes(job.status) &&
   (job.processed_sections < job.total_sections || job.failed_count > 0);
+
+const canPauseProfileJob = (job: ChapterProfileGenerationJob) => ["queued", "running"].includes(job.status);
+
+const canResumeProfileJob = (job: ChapterProfileGenerationJob) => job.status === "paused";
+
+const canCancelProfileJob = (job: ChapterProfileGenerationJob) => ["queued", "running", "paused"].includes(job.status);
 
 const formatDate = (value: string | null) => (value ? new Date(value).toLocaleString() : "-");
 

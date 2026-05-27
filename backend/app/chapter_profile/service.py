@@ -50,6 +50,9 @@ EXPECTED_BY_CHAPTER_TYPE: dict[str, list[str]] = {
     "safety_control": ["危险源", "安全防护", "应急措施", "监测"],
     "calculation": ["荷载", "承载力", "稳定性", "参数取值"],
 }
+COMPLETED_GENERATION_ITEM_STATUSES = {"success", "rule_only"}
+PROCESSED_GENERATION_ITEM_STATUSES = {"success", "rule_only", "failed", "cancelled"}
+TERMINAL_GENERATION_JOB_STATUSES = {"success", "partial_success", "failed", "cancelled"}
 
 PROFILE_EXTRACTION_PROMPT = """你是一名施工方案审查画像抽取助手。
 请基于章节标题和正文抽取结构化画像，只输出 JSON，不要输出 Markdown。
@@ -237,6 +240,107 @@ class ChapterProfileService:
         db.refresh(job)
         return job
 
+    def pause_generation_job(self, db: Session, job_id: int) -> ChapterProfileGenerationJob:
+        job = self.get_generation_job(db, job_id)
+        if job.status not in {"queued", "running"}:
+            raise PlatformError("Only queued or running chapter profile jobs can be paused.", status_code=400)
+
+        now = datetime.utcnow()
+        (
+            db.query(ChapterProfileGenerationItem)
+            .filter(
+                ChapterProfileGenerationItem.job_id == job.id,
+                ChapterProfileGenerationItem.status == "queued",
+            )
+            .update(
+                {
+                    "status": "paused",
+                    "message": "Paused.",
+                    "updated_at": now,
+                },
+                synchronize_session=False,
+            )
+        )
+        job.status = "paused"
+        job.updated_at = now
+        self._refresh_generation_job_summary(db, job)
+        db.commit()
+        db.refresh(job)
+        return job
+
+    def resume_generation_job(
+        self,
+        db: Session,
+        job_id: int,
+        concurrency: int = 3,
+    ) -> ChapterProfileGenerationJob:
+        job = self.get_generation_job(db, job_id)
+        if job.status != "paused":
+            raise PlatformError("Only paused chapter profile jobs can be continued.", status_code=400)
+
+        now = datetime.utcnow()
+        (
+            db.query(ChapterProfileGenerationItem)
+            .filter(
+                ChapterProfileGenerationItem.job_id == job.id,
+                ChapterProfileGenerationItem.status == "paused",
+            )
+            .update(
+                {
+                    "status": "queued",
+                    "message": "Requeued for continue.",
+                    "updated_at": now,
+                },
+                synchronize_session=False,
+            )
+        )
+        job.status = "queued"
+        job.error_message = None
+        job.finished_at = None
+        job.updated_at = now
+        self._refresh_generation_job_summary(db, job)
+        db.commit()
+
+        from app.workers.chapter_profile_tasks import generate_chapter_profiles_job
+
+        async_result = generate_chapter_profiles_job.delay(job.id, max(1, min(concurrency, 8)))
+        job.celery_task_id = async_result.id
+        job.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(job)
+        return job
+
+    def cancel_generation_job(self, db: Session, job_id: int) -> ChapterProfileGenerationJob:
+        job = self.get_generation_job(db, job_id)
+        if job.status in TERMINAL_GENERATION_JOB_STATUSES:
+            raise PlatformError("This chapter profile job is already finished.", status_code=400)
+
+        now = datetime.utcnow()
+        (
+            db.query(ChapterProfileGenerationItem)
+            .filter(
+                ChapterProfileGenerationItem.job_id == job.id,
+                ChapterProfileGenerationItem.status.notin_(COMPLETED_GENERATION_ITEM_STATUSES),
+            )
+            .update(
+                {
+                    "status": "cancelled",
+                    "message": "Cancelled.",
+                    "finished_at": now,
+                    "updated_at": now,
+                },
+                synchronize_session=False,
+            )
+        )
+        job.status = "cancelled"
+        job.error_message = None
+        job.finished_at = now
+        job.updated_at = now
+        self._refresh_generation_job_summary(db, job)
+        db.commit()
+        db.refresh(job)
+        return job
+
     def list_generation_items(
         self,
         db: Session,
@@ -284,7 +388,7 @@ class ChapterProfileService:
 
     async def run_generation_job(self, db: Session, job_id: int, concurrency: int = 1) -> dict[str, Any]:
         job = self.get_generation_job(db, job_id)
-        if job.status in {"success", "partial_success", "failed"}:
+        if job.status in TERMINAL_GENERATION_JOB_STATUSES or job.status == "paused":
             return {"job_id": job.id, "status": job.status}
 
         job.status = "running"
@@ -301,7 +405,7 @@ class ChapterProfileService:
                     .order_by(ChapterProfileGenerationItem.id.asc())
                     .all()
                 )
-                if item.status not in {"success", "rule_only"}
+                if item.status == "queued"
             ]
             semaphore = asyncio.Semaphore(max(1, min(concurrency, 8)))
 
@@ -313,6 +417,23 @@ class ChapterProfileService:
             db.expire_all()
             job = self.get_generation_job(db, job_id)
             self._refresh_generation_job_summary(db, job)
+            if job.status == "cancelled":
+                job.updated_at = datetime.utcnow()
+                db.commit()
+                flush_langfuse()
+                return {"job_id": job.id, "status": job.status}
+            if job.status == "paused" and job.processed_sections < job.total_sections:
+                job.finished_at = None
+                job.updated_at = datetime.utcnow()
+                db.commit()
+                flush_langfuse()
+                return {"job_id": job.id, "status": job.status}
+            if job.processed_sections < job.total_sections:
+                job.finished_at = None
+                job.updated_at = datetime.utcnow()
+                db.commit()
+                flush_langfuse()
+                return {"job_id": job.id, "status": job.status}
             job.finished_at = datetime.utcnow()
             if job.failed_count >= job.total_sections:
                 job.status = "failed"
@@ -340,13 +461,34 @@ class ChapterProfileService:
         try:
             job = self.get_generation_job(db, job_id)
             item = db.query(ChapterProfileGenerationItem).filter(ChapterProfileGenerationItem.id == item_id).first()
-            if not item or item.status == "success":
+            if not item or job.status in {"paused", "cancelled"}:
                 return
 
-            item.status = "running"
-            item.started_at = item.started_at or datetime.utcnow()
-            item.updated_at = datetime.utcnow()
+            now = datetime.utcnow()
+            claimed_count = (
+                db.query(ChapterProfileGenerationItem)
+                .filter(
+                    ChapterProfileGenerationItem.id == item_id,
+                    ChapterProfileGenerationItem.status == "queued",
+                )
+                .update(
+                    {
+                        "status": "running",
+                        "started_at": item.started_at or now,
+                        "updated_at": now,
+                    },
+                    synchronize_session=False,
+                )
+            )
             db.commit()
+            if not claimed_count:
+                return
+            db.expire_all()
+            job = self.get_generation_job(db, job_id)
+            item = db.query(ChapterProfileGenerationItem).filter(ChapterProfileGenerationItem.id == item_id).first()
+            if not item or job.status in {"paused", "cancelled"}:
+                return
+
 
             plan_section = (
                 db.query(PlanSection)
@@ -384,6 +526,19 @@ class ChapterProfileService:
                 task_id=job.task_id,
                 job_id=job.id,
             )
+            db.expire(job)
+            job = self.get_generation_job(db, job_id)
+            if job.status == "cancelled":
+                db.rollback()
+                item = db.query(ChapterProfileGenerationItem).filter(ChapterProfileGenerationItem.id == item_id).first()
+                if item:
+                    item.status = "cancelled"
+                    item.message = "Cancelled."
+                    item.finished_at = datetime.utcnow()
+                    item.updated_at = datetime.utcnow()
+                self._refresh_generation_job_summary(db, job)
+                db.commit()
+                return
             item.status = "rule_only" if llm_failed else "success"
             item.profile_id = profile.id
             item.used_llm = not llm_failed
@@ -542,8 +697,7 @@ class ChapterProfileService:
 
     def _refresh_generation_job_summary(self, db: Session, job: ChapterProfileGenerationJob) -> None:
         items = db.query(ChapterProfileGenerationItem).filter(ChapterProfileGenerationItem.job_id == job.id).all()
-        success_statuses = {"success", "rule_only", "failed"}
-        job.processed_sections = sum(1 for item in items if item.status in success_statuses)
+        job.processed_sections = sum(1 for item in items if item.status in PROCESSED_GENERATION_ITEM_STATUSES)
         job.created_count = sum(1 for item in items if item.status in {"success", "rule_only"} and item.profile_id and "created" in (item.message or ""))
         job.updated_count = sum(1 for item in items if item.status in {"success", "rule_only"} and item.profile_id and "updated" in (item.message or ""))
         job.failed_count = sum(1 for item in items if item.status == "failed")

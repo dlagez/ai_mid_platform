@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { EyeOutlined, PlayCircleOutlined, ReloadOutlined } from "@ant-design/icons";
-import { Button, Card, Progress, Space, Table, Tag, Typography, message } from "antd";
+import { EyeOutlined, PauseCircleOutlined, PlayCircleOutlined, ReloadOutlined, StopOutlined } from "@ant-design/icons";
+import { Button, Card, Popconfirm, Progress, Space, Table, Tag, Typography, message } from "antd";
 import {
+  cancelChapterProfileJob,
   listChapterProfileJobs,
   listDocuments,
+  pauseChapterProfileJob,
   restartChapterProfileJob,
+  resumeChapterProfileJob,
   type ChapterProfileGenerationJob,
   type DocumentRecord,
 } from "../services/documentService";
@@ -18,7 +21,7 @@ export const ChapterProfileJobsPage = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(false);
-  const [restartingJobId, setRestartingJobId] = useState<number | null>(null);
+  const [actingJobId, setActingJobId] = useState<number | null>(null);
 
   const documentById = useMemo(() => {
     const map = new Map<number, DocumentRecord>();
@@ -52,7 +55,7 @@ export const ChapterProfileJobsPage = () => {
   }, []);
 
   const handleRestart = async (jobId: number) => {
-    setRestartingJobId(jobId);
+    setActingJobId(jobId);
     try {
       await restartChapterProfileJob(jobId);
       message.success(`Chapter profile job #${jobId} restarted.`);
@@ -60,7 +63,46 @@ export const ChapterProfileJobsPage = () => {
     } catch {
       message.error("Failed to restart chapter profile job.");
     } finally {
-      setRestartingJobId(null);
+      setActingJobId(null);
+    }
+  };
+
+  const handlePause = async (jobId: number) => {
+    setActingJobId(jobId);
+    try {
+      await pauseChapterProfileJob(jobId);
+      message.success(`Chapter profile job #${jobId} paused.`);
+      await load();
+    } catch {
+      message.error("Failed to pause chapter profile job.");
+    } finally {
+      setActingJobId(null);
+    }
+  };
+
+  const handleResume = async (jobId: number) => {
+    setActingJobId(jobId);
+    try {
+      await resumeChapterProfileJob(jobId);
+      message.success(`Chapter profile job #${jobId} continued.`);
+      await load();
+    } catch {
+      message.error("Failed to continue chapter profile job.");
+    } finally {
+      setActingJobId(null);
+    }
+  };
+
+  const handleCancel = async (jobId: number) => {
+    setActingJobId(jobId);
+    try {
+      await cancelChapterProfileJob(jobId);
+      message.success(`Chapter profile job #${jobId} cancelled.`);
+      await load();
+    } catch {
+      message.error("Failed to cancel chapter profile job.");
+    } finally {
+      setActingJobId(null);
     }
   };
 
@@ -159,9 +201,9 @@ export const ChapterProfileJobsPage = () => {
             },
             {
               title: "",
-              width: 220,
+              width: 430,
               render: (_, record) => (
-                <Space>
+                <Space wrap>
                   <Button
                     size="small"
                     icon={<EyeOutlined />}
@@ -172,12 +214,47 @@ export const ChapterProfileJobsPage = () => {
                   <Button
                     size="small"
                     icon={<PlayCircleOutlined />}
-                    loading={restartingJobId === record.id}
+                    loading={actingJobId === record.id}
                     disabled={!canRestartProfileJob(record)}
                     onClick={() => void handleRestart(record.id)}
                   >
                     Restart
                   </Button>
+                  <Button
+                    size="small"
+                    icon={<PauseCircleOutlined />}
+                    loading={actingJobId === record.id}
+                    disabled={!canPauseProfileJob(record)}
+                    onClick={() => void handlePause(record.id)}
+                  >
+                    Pause
+                  </Button>
+                  <Button
+                    size="small"
+                    icon={<PlayCircleOutlined />}
+                    loading={actingJobId === record.id}
+                    disabled={!canResumeProfileJob(record)}
+                    onClick={() => void handleResume(record.id)}
+                  >
+                    Continue
+                  </Button>
+                  <Popconfirm
+                    title="Cancel this chapter profile job?"
+                    okText="Cancel Job"
+                    cancelText="Keep"
+                    disabled={!canCancelProfileJob(record)}
+                    onConfirm={() => void handleCancel(record.id)}
+                  >
+                    <Button
+                      size="small"
+                      danger
+                      icon={<StopOutlined />}
+                      loading={actingJobId === record.id}
+                      disabled={!canCancelProfileJob(record)}
+                    >
+                      Cancel
+                    </Button>
+                  </Popconfirm>
                 </Space>
               ),
             },
@@ -190,12 +267,24 @@ export const ChapterProfileJobsPage = () => {
 
 const ProfileStatusTag = ({ status }: { status: string }) => {
   const color =
-    status === "success" ? "green" : status === "partial_success" || status === "rule_only" ? "gold" : status === "failed" ? "red" : "blue";
+    status === "success"
+      ? "green"
+      : status === "partial_success" || status === "rule_only" || status === "paused"
+        ? "gold"
+        : status === "failed" || status === "cancelled"
+          ? "red"
+          : "blue";
   return <Tag color={color}>{status}</Tag>;
 };
 
 const canRestartProfileJob = (job: ChapterProfileGenerationJob) =>
   ["queued", "running", "failed", "partial_success"].includes(job.status) &&
   (job.processed_sections < job.total_sections || job.failed_count > 0);
+
+const canPauseProfileJob = (job: ChapterProfileGenerationJob) => ["queued", "running"].includes(job.status);
+
+const canResumeProfileJob = (job: ChapterProfileGenerationJob) => job.status === "paused";
+
+const canCancelProfileJob = (job: ChapterProfileGenerationJob) => ["queued", "running", "paused"].includes(job.status);
 
 const formatDate = (value: string | null) => (value ? new Date(value).toLocaleString() : "-");
