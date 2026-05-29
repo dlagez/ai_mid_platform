@@ -51,19 +51,24 @@ class DecimalNumberStrategy:
             section_no = re.sub(r"\s+", "", appendix.group(1))
             return HeadingMatch(level=1, title=line.strip(), section_no=section_no)
 
-        special = re.match(r"^\s*(本标准用词说明|引用标准名录)\s*(.*)$", line)
+        special = re.match(r"^\s*(本标准用词说明|本规范用词说明|引用标准名录)\s*(.*)$", line)
         if special and _looks_like_title(line):
             return HeadingMatch(level=1, title=line.strip(), section_no=None)
 
-        match = re.match(r"^\s*((?:\d{1,2}\.){1,2}\d{1,2})([\u4e00-\u9fff].*)$", line)
+        match = re.match(
+            r"^\s*(\d{1,2}(?:\s*[.．]\s*\d{1,2}){1,2})(?=\s|[.．、~～\u4e00-\u9fff])\s*[.．、]?\s*(.+)$",
+            line,
+        )
         if not match:
-            match = re.match(r"^\s*((?:\d{1,2}\.){1,2}\d{1,2}|\d{1,2})(?:[.．、]|\s+)\s*(.+)$", line)
-        if not match or not _looks_like_title(line):
+            match = re.match(r"^\s*(\d{1,2})(?:[.．、]|\s+)\s*(.+)$", line)
+        if not match:
             return None
 
-        section_no = match.group(1)
+        section_no = _normalize_decimal_section_no(match.group(1))
         level = section_no.count(".") + 1
         if level > 3:
+            return None
+        if level < 3 and not _looks_like_title(line):
             return None
         return HeadingMatch(level=level, title=line.strip(), section_no=section_no)
 
@@ -154,6 +159,10 @@ def parse_sections_with_strategy(
     if not use_toc_outline and strategy == "auto":
         markdown = _strip_toc_region(markdown)
 
+    return _parse_sections_linear(markdown, parser)
+
+
+def _parse_sections_linear(markdown: str, parser: SectionRebuildStrategy) -> list[ParsedSection]:
     roots: list[ParsedSection] = []
     stack: list[ParsedSection] = []
     body_lines_before_first_heading: list[str] = []
@@ -165,6 +174,14 @@ def parse_sections_with_strategy(
 
         heading = _detect_heading(parser, line)
         if heading:
+            if not _is_plausible_heading(heading, stack, roots):
+                if stack:
+                    current = stack[-1]
+                    current.content = f"{current.content}\n{line}".strip() if current.content else line
+                else:
+                    body_lines_before_first_heading.append(line)
+                continue
+
             section = ParsedSection(
                 level=heading.level,
                 title=heading.title,
@@ -218,6 +235,11 @@ def _parse_sections_from_toc_outline(
         matched_outline_rows = [row for row in outline_rows if row[3] in body_keys]
         if not matched_outline_rows:
             continue
+
+        body_markdown = _extract_primary_body_markdown(lines, body_headings)
+        body_sections = _parse_sections_linear(body_markdown, parser) if body_markdown else []
+        if _max_section_level(body_sections) > _max_heading_level(matched_outline_rows):
+            return body_sections
 
         roots, flat_sections = _build_tree_from_heading_rows(matched_outline_rows)
         _fill_outline_content_from_body(lines, body_headings, flat_sections, outline_end)
@@ -403,6 +425,32 @@ def _strip_markdown_heading_prefix(line: str) -> str:
     return re.sub(r"^#+\s*", "", line).strip()
 
 
+def _extract_primary_body_markdown(lines: list[str], body_headings: list[tuple[int, str, HeadingMatch, str]]) -> str:
+    if not body_headings:
+        return ""
+
+    start_index = body_headings[0][0]
+    end_index = len(lines)
+    for index in range(start_index + 1, len(lines)):
+        line = _strip_markdown_heading_prefix(lines[index]).replace(" ", "").strip()
+        if line.endswith("条文说明") and index - start_index > 20:
+            end_index = index
+            break
+
+    return "\n".join(lines[start_index:end_index])
+
+
+def _max_section_level(sections: list[ParsedSection]) -> int:
+    max_level = 0
+    for section in sections:
+        max_level = max(max_level, section.level, _max_section_level(section.children))
+    return max_level
+
+
+def _max_heading_level(rows: list[tuple[int, str, HeadingMatch, str]]) -> int:
+    return max((heading.level for _, _, heading, _ in rows), default=0)
+
+
 def _build_tree_from_heading_rows(
     rows: list[tuple[int, str, HeadingMatch, str]],
 ) -> tuple[list[ParsedSection], list[tuple[ParsedSection, str]]]:
@@ -557,6 +605,10 @@ def _normalize_named_groups(pattern: str) -> str:
     return re.sub(r"\(\?<([A-Za-z_][A-Za-z0-9_]*)>", r"(?P<\1>", pattern)
 
 
+def _normalize_decimal_section_no(section_no: str) -> str:
+    return re.sub(r"\s+", "", section_no).replace("．", ".")
+
+
 def _extract_section_no(text: str) -> str | None:
     appendix_match = re.match(r"^\s*(附录\s*[A-Za-zＡ-Ｚ])\b", text)
     if appendix_match:
@@ -584,6 +636,46 @@ def _level_from_section_no(section_no: str | None) -> int | None:
         return section_no.count(".") + 1
     if re.match(r"^第[一二三四五六七八九十百千万零〇两\d]+章$", section_no):
         return 1
+    return None
+
+
+def _is_plausible_heading(
+    heading: HeadingMatch,
+    stack: list[ParsedSection],
+    roots: list[ParsedSection],
+) -> bool:
+    section_no = heading.section_no
+    if not section_no or not re.match(r"^\d{1,2}(?:\.\d{1,2}){0,2}$", section_no):
+        return True
+
+    parts = section_no.split(".")
+    if heading.level != len(parts):
+        return False
+
+    if heading.level == 1:
+        if stack and stack[0].section_no is None:
+            return False
+        if stack and stack[0].section_no == section_no:
+            return False
+        last_root_no = _last_numeric_root_no(roots)
+        return last_root_no is None or int(parts[0]) >= last_root_no
+
+    root_no = parts[0]
+    if stack and stack[0].section_no and stack[0].section_no.split(".", 1)[0] != root_no:
+        return False
+
+    parent_no = ".".join(parts[:-1])
+    if any(section.section_no == parent_no for section in stack):
+        return True
+    if heading.level == 3 and stack and stack[0].section_no == root_no:
+        return True
+    return False
+
+
+def _last_numeric_root_no(roots: list[ParsedSection]) -> int | None:
+    for section in reversed(roots):
+        if section.section_no and re.match(r"^\d{1,2}$", section.section_no):
+            return int(section.section_no)
     return None
 
 

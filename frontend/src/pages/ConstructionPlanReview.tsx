@@ -80,6 +80,7 @@ const ParsedDocumentUploadPage = ({
   const [parsed, setParsed] = useState<DocumentParseResult | null>(null);
   const [parseJobs, setParseJobs] = useState<ParseJobRecord[]>([]);
   const [selectedSection, setSelectedSection] = useState<PlanSection | null>(null);
+  const [expandedSectionKeys, setExpandedSectionKeys] = useState<string[]>([]);
   const [profileJobs, setProfileJobs] = useState<Record<string, ChapterProfileGenerationJob>>({});
   const [selectedFileId, setSelectedFileId] = useState<number | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
@@ -151,6 +152,7 @@ const ParsedDocumentUploadPage = ({
         setSelectedFileId(null);
         setParsed(null);
         setSelectedSection(null);
+        setExpandedSectionKeys([]);
       }
       return;
     }
@@ -194,6 +196,7 @@ const ParsedDocumentUploadPage = ({
     try {
       const result = await getDocumentSections(id, mode);
       setParsed(result);
+      setExpandedSectionKeys(getSectionKeys(result.sections));
       setSelectedSection(findFirstSection(result.sections));
     } catch {
       if (!options.silent) {
@@ -268,6 +271,7 @@ const ParsedDocumentUploadPage = ({
       if (parsed?.id === record.id) {
         setParsed(null);
         setSelectedSection(null);
+        setExpandedSectionKeys([]);
         setSelectedFileId(null);
       }
       await Promise.all([refreshFiles(), refreshParseJobs(), refreshProfileJobs()]);
@@ -514,7 +518,13 @@ const ParsedDocumentUploadPage = ({
             />
             <Spin spinning={loading.view}>
               {parsed ? (
-                <SectionsViewer parsed={parsed} selectedSection={selectedSection} onSelectSection={setSelectedSection} />
+                <SectionsViewer
+                  parsed={parsed}
+                  selectedSection={selectedSection}
+                  expandedKeys={expandedSectionKeys}
+                  onExpand={setExpandedSectionKeys}
+                  onSelectSection={setSelectedSection}
+                />
               ) : (
                 <Typography.Text type="secondary">{emptyDescription}</Typography.Text>
               )}
@@ -591,10 +601,14 @@ const ParseControls = ({
 const SectionsViewer = ({
   parsed,
   selectedSection,
+  expandedKeys,
+  onExpand,
   onSelectSection,
 }: {
   parsed: DocumentParseResult;
   selectedSection: PlanSection | null;
+  expandedKeys: string[];
+  onExpand: (keys: string[]) => void;
   onSelectSection: (section: PlanSection | null) => void;
 }) => {
   if (!parsed.sections.length) {
@@ -606,7 +620,8 @@ const SectionsViewer = ({
         <div className="plan-section-tree">
           <Tree
             blockNode
-            defaultExpandAll
+            expandedKeys={expandedKeys}
+            onExpand={(keys) => onExpand(keys.map(String))}
             selectedKeys={selectedSection ? [String(selectedSection.id)] : []}
             treeData={toTreeData(parsed.sections)}
             onSelect={(keys) => {
@@ -657,6 +672,9 @@ const toTreeData = (sections: PlanSection[]): DataNode[] =>
     title: section.title,
     children: toTreeData(section.children),
   }));
+
+const getSectionKeys = (sections: PlanSection[]): string[] =>
+  sections.flatMap((section) => [String(section.id), ...getSectionKeys(section.children)]);
 
 const findSection = (sections: PlanSection[], id: number): PlanSection | null => {
   for (const section of sections) {

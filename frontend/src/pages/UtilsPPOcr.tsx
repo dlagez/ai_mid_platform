@@ -42,6 +42,7 @@ import {
   type PPOcrPdfPage,
   type PPOcrPdfSectionsResult,
   type PPOcrResultSection,
+  type PPOcrResultSectionFlat,
   type SectionRebuildStrategy,
 } from "../services/utilsService";
 
@@ -53,6 +54,7 @@ export const UtilsPPOcrPage = () => {
   const [selectedDetail, setSelectedDetail] = useState<PPOcrPdfJobDetail | null>(null);
   const [sectionsResult, setSectionsResult] = useState<PPOcrPdfSectionsResult | null>(null);
   const [selectedSection, setSelectedSection] = useState<PPOcrResultSection | null>(null);
+  const [expandedSectionKeys, setExpandedSectionKeys] = useState<string[]>([]);
   const [sectionStrategy, setSectionStrategy] = useState<SectionRebuildStrategy>("decimal_number");
   const [useTocOutline, setUseTocOutline] = useState(true);
   const [customPatterns, setCustomPatterns] = useState({
@@ -71,6 +73,7 @@ export const UtilsPPOcrPage = () => {
     rebuildSections: false,
   });
   const [pdfPreview, setPdfPreview] = useState({ open: false, title: "", url: "" });
+  const sectionTree = sectionsResult ? buildSectionTree(sectionsResult.flat_sections, sectionsResult.sections) : [];
 
   const refreshJobs = async () => {
     setLoading((s) => ({ ...s, jobs: true }));
@@ -157,14 +160,17 @@ export const UtilsPPOcrPage = () => {
     setLoading((s) => ({ ...s, sections: true }));
     try {
       const result = await getPPOcrPdfSections(jobId);
+      const nextTree = buildSectionTree(result.flat_sections, result.sections);
       setSectionsResult(result);
-      setSelectedSection(findFirstSection(result.sections));
+      setExpandedSectionKeys(getSectionKeys(nextTree));
+      setSelectedSection(findFirstSection(nextTree));
     } catch {
       if (showError) {
         message.error("Failed to load document sections.");
       }
       setSectionsResult(null);
       setSelectedSection(null);
+      setExpandedSectionKeys([]);
     } finally {
       setLoading((s) => ({ ...s, sections: false }));
     }
@@ -184,8 +190,10 @@ export const UtilsPPOcrPage = () => {
         level2_pattern: sectionStrategy === "custom" ? customPatterns.level2_pattern : null,
         level3_pattern: sectionStrategy === "custom" ? customPatterns.level3_pattern : null,
       });
+      const nextTree = buildSectionTree(result.flat_sections, result.sections);
       setSectionsResult(result);
-      setSelectedSection(findFirstSection(result.sections));
+      setExpandedSectionKeys(getSectionKeys(nextTree));
+      setSelectedSection(findFirstSection(nextTree));
       message.success("Document sections rebuilt.");
     } catch {
       message.error("Failed to rebuild document sections.");
@@ -491,21 +499,22 @@ export const UtilsPPOcrPage = () => {
                   </Row>
                 ) : null}
 
-                {sectionsResult?.sections.length ? (
+                {sectionTree.length ? (
                   <Row gutter={[16, 16]}>
                     <Col xs={24} lg={10}>
                       <div className="plan-section-tree">
                         <Tree
                           blockNode
-                          defaultExpandAll
+                          expandedKeys={expandedSectionKeys}
+                          onExpand={(keys) => setExpandedSectionKeys(keys.map(String))}
                           selectedKeys={selectedSection ? [String(selectedSection.id)] : []}
-                          treeData={toSectionTreeData(sectionsResult.sections)}
+                          treeData={toSectionTreeData(sectionTree)}
                           onSelect={(keys) => {
                             const key = keys[0];
                             if (!key) {
                               return;
                             }
-                            setSelectedSection(findSection(sectionsResult.sections, Number(key)));
+                            setSelectedSection(findSection(sectionTree, Number(key)));
                           }}
                         />
                       </div>
@@ -599,6 +608,39 @@ const toSectionTreeData = (sections: PPOcrResultSection[]): DataNode[] =>
     title: section.title,
     children: toSectionTreeData(section.children),
   }));
+
+const buildSectionTree = (
+  flatSections: PPOcrResultSectionFlat[],
+  fallbackTree: PPOcrResultSection[] = [],
+): PPOcrResultSection[] => {
+  if (!flatSections.length) {
+    return fallbackTree;
+  }
+
+  const items = new Map<number, PPOcrResultSection>();
+  flatSections.forEach((section) => {
+    items.set(section.id, { ...section, children: [] });
+  });
+
+  const roots: PPOcrResultSection[] = [];
+  flatSections.forEach((section) => {
+    const item = items.get(section.id);
+    if (!item) {
+      return;
+    }
+    const parent = section.parent_id ? items.get(section.parent_id) : null;
+    if (parent) {
+      parent.children.push(item);
+    } else {
+      roots.push(item);
+    }
+  });
+
+  return roots;
+};
+
+const getSectionKeys = (sections: PPOcrResultSection[]): string[] =>
+  sections.flatMap((section) => [String(section.id), ...getSectionKeys(section.children)]);
 
 const findSection = (sections: PPOcrResultSection[], id: number): PPOcrResultSection | null => {
   for (const section of sections) {

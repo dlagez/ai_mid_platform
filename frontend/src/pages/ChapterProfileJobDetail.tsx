@@ -63,6 +63,7 @@ export const ChapterProfileJobDetailPage = () => {
   const [parsed, setParsed] = useState<DocumentParseResult | null>(null);
   const [matches, setMatches] = useState<CheckpointMatchWithCheckpoint[]>([]);
   const [selectedSectionId, setSelectedSectionId] = useState<number | null>(null);
+  const [expandedSectionKeys, setExpandedSectionKeys] = useState<string[]>([]);
   const [profileQuery, setProfileQuery] = useState<ProfileFilterValues & { page: number; page_size: number }>({
     page: 1,
     page_size: 20,
@@ -94,6 +95,7 @@ export const ChapterProfileJobDetailPage = () => {
       setProfiles(profileResult.items);
       setParsed(parseResult);
       setMatches(matchResult.items);
+      setExpandedSectionKeys(getSectionKeys(parseResult.sections));
       setSelectedSectionId((current) => current ?? findFirstProfileSectionId(profileResult.items) ?? findFirstSection(parseResult.sections)?.id ?? null);
     } catch {
       message.error("Failed to load chapter profile job.");
@@ -298,7 +300,8 @@ export const ChapterProfileJobDetailPage = () => {
               {parsed?.sections.length ? (
                 <Tree
                   blockNode
-                  defaultExpandAll
+                  expandedKeys={expandedSectionKeys}
+                  onExpand={(keys) => setExpandedSectionKeys(keys.map(String))}
                   selectedKeys={selectedSectionId ? [String(selectedSectionId)] : []}
                   treeData={toSectionTreeData(parsed.sections, profilesBySectionId, itemsBySectionId, matchesBySectionId)}
                   onSelect={(keys) => setSelectedSectionId(keys[0] ? Number(keys[0]) : null)}
@@ -641,6 +644,9 @@ const toSectionTreeData = (
       children: toSectionTreeData(section.children, profilesBySectionId, itemsBySectionId, matchesBySectionId),
     };
   });
+
+const getSectionKeys = (sections: PlanSection[]): string[] =>
+  sections.flatMap((section) => [String(section.id), ...getSectionKeys(section.children)]);
 
 const findSection = (sections: PlanSection[], id: number): PlanSection | null => {
   for (const section of sections) {
