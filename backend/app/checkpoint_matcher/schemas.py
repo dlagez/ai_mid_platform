@@ -29,10 +29,22 @@ class MatchCheckpointsResponse(BaseModel):
     items: list[CheckpointMatchResultRead]
 
 
+class PlanSectionSummaryRead(BaseModel):
+    id: int
+    level: int
+    title: str
+    section_no: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class CheckpointMatchWithCheckpointRead(CheckpointMatchResultRead):
     checkpoint: ReviewCheckpointRead | None = None
+    section: PlanSectionSummaryRead | None = None
 
 
 class CheckpointMatchListResponse(BaseModel):
     items: list[CheckpointMatchWithCheckpointRead]
     total: int
+    page: int | None = None
+    page_size: int | None = None

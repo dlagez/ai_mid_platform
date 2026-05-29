@@ -122,9 +122,20 @@ async def list_review_checkpoint_matches(
     _: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[CheckpointMatcherService, Depends(get_checkpoint_matcher_service)],
     db: Annotated[Session, Depends(get_db)],
+    status: str | None = None,
+    matched_only: bool = False,
+    page: int | None = Query(None, ge=1),
+    page_size: int | None = Query(None, ge=1, le=500),
 ) -> CheckpointMatchListResponse:
-    items = service.list_task_matches(db, task_id)
-    return CheckpointMatchListResponse(items=items, total=len(items))
+    items, total = service.list_task_matches(
+        db,
+        task_id,
+        status=status,
+        matched_only=matched_only,
+        page=page,
+        page_size=page_size,
+    )
+    return CheckpointMatchListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.post("/{task_id}/run-checkpoint-review", response_model=RunCheckpointReviewResponse)

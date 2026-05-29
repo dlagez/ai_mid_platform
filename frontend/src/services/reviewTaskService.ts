@@ -130,11 +130,26 @@ export type CheckpointMatchResult = {
 
 export type CheckpointMatchWithCheckpoint = CheckpointMatchResult & {
   checkpoint: ReviewCheckpoint | null;
+  section: {
+    id: number;
+    level: number;
+    title: string;
+    section_no: string | null;
+  } | null;
 };
 
 export type CheckpointMatchListResult = {
   items: CheckpointMatchWithCheckpoint[];
   total: number;
+  page?: number | null;
+  page_size?: number | null;
+};
+
+export type CheckpointMatchListQuery = {
+  status?: string;
+  matched_only?: boolean;
+  page?: number;
+  page_size?: number;
 };
 
 export type MatchCheckpointsResult = {
@@ -214,8 +229,10 @@ export const matchReviewCheckpoints = async (taskId: number) => {
   return data;
 };
 
-export const listReviewTaskCheckpointMatches = async (taskId: number) => {
-  const { data } = await apiClient.get<CheckpointMatchListResult>(`/review-tasks/${taskId}/checkpoint-matches`);
+export const listReviewTaskCheckpointMatches = async (taskId: number, query: CheckpointMatchListQuery = {}) => {
+  const { data } = await apiClient.get<CheckpointMatchListResult>(`/review-tasks/${taskId}/checkpoint-matches`, {
+    params: query,
+  });
   return data;
 };
 

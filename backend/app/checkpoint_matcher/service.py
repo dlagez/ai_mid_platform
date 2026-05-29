@@ -6,7 +6,7 @@ from functools import lru_cache
 from typing import Any
 
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.db.models import ChapterReviewProfile, CheckpointMatchResult, ReviewCheckpoint, ReviewTask
 from app.rule_engine.matchers import normalize_text
@@ -19,16 +19,31 @@ MAX_SELECTED_PER_SECTION = 3
 
 
 class CheckpointMatcherService:
-    def list_task_matches(self, db: Session, task_id: int) -> list[CheckpointMatchResult]:
+    def list_task_matches(
+        self,
+        db: Session,
+        task_id: int,
+        *,
+        status: str | None = None,
+        matched_only: bool = False,
+        page: int | None = None,
+        page_size: int | None = None,
+    ) -> tuple[list[CheckpointMatchResult], int]:
         task = db.query(ReviewTask).filter(ReviewTask.id == task_id).first()
         if not task:
             raise PlatformError(f"Review task id={task_id} not found", status_code=404)
-        return (
-            db.query(CheckpointMatchResult)
-            .filter(CheckpointMatchResult.task_id == task.id)
-            .order_by(CheckpointMatchResult.section_id.asc(), CheckpointMatchResult.match_score.desc(), CheckpointMatchResult.id.asc())
-            .all()
+        query = db.query(CheckpointMatchResult).filter(CheckpointMatchResult.task_id == task.id)
+        if status:
+            query = query.filter(CheckpointMatchResult.status == status)
+        elif matched_only:
+            query = query.filter(CheckpointMatchResult.status != "candidate")
+        total = query.count()
+        query = query.options(joinedload(CheckpointMatchResult.checkpoint), joinedload(CheckpointMatchResult.section)).order_by(
+            CheckpointMatchResult.section_id.asc(), CheckpointMatchResult.match_score.desc(), CheckpointMatchResult.id.asc()
         )
+        if page is not None and page_size is not None:
+            query = query.offset((page - 1) * page_size).limit(page_size)
+        return query.all(), total
 
     def match_task_checkpoints(self, db: Session, task_id: int) -> dict[str, Any]:
         task = db.query(ReviewTask).filter(ReviewTask.id == task_id).first()

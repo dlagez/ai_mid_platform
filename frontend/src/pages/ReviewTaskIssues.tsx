@@ -30,9 +30,11 @@ import {
 import {
   confirmReviewIssue,
   getReviewTask,
+  listReviewTaskCheckpointMatches,
   listReviewTaskIssues,
   matchReviewCheckpoints,
   runCheckpointReview,
+  type CheckpointMatchWithCheckpoint,
   type ReviewIssue,
   type ReviewIssueConfirmRequest,
   type ReviewIssueListQuery,
@@ -58,12 +60,16 @@ export const ReviewTaskIssuesPage = () => {
   const navigate = useNavigate();
   const [task, setTask] = useState<ReviewTask | null>(null);
   const [issues, setIssues] = useState<ReviewIssue[]>([]);
+  const [matches, setMatches] = useState<CheckpointMatchWithCheckpoint[]>([]);
   const [total, setTotal] = useState(0);
+  const [matchTotal, setMatchTotal] = useState(0);
   const [query, setQuery] = useState<ReviewIssueListQuery>({ page: 1, page_size: 20 });
+  const [matchQuery, setMatchQuery] = useState({ page: 1, page_size: 20 });
   const [selected, setSelected] = useState<ReviewIssue | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [loading, setLoading] = useState({
     list: false,
+    matches: false,
     confirm: false,
     match: false,
     checkpointRun: false,
@@ -89,8 +95,29 @@ export const ReviewTaskIssuesPage = () => {
     }
   };
 
+  const loadMatches = async (nextQuery = matchQuery) => {
+    if (!taskId) {
+      return;
+    }
+    setLoading((current) => ({ ...current, matches: true }));
+    try {
+      const result = await listReviewTaskCheckpointMatches(taskId, { ...nextQuery, matched_only: true });
+      setMatches(result.items);
+      setMatchTotal(result.total);
+      setMatchQuery({ page: result.page ?? nextQuery.page, page_size: result.page_size ?? nextQuery.page_size });
+    } catch {
+      message.error("Failed to load checkpoint matches.");
+    } finally {
+      setLoading((current) => ({ ...current, matches: false }));
+    }
+  };
+
+  const reloadAll = async () => {
+    await Promise.all([load(), loadMatches()]);
+  };
+
   useEffect(() => {
-    void load();
+    void reloadAll();
   }, [taskId]);
 
   const matchCheckpoints = async () => {
@@ -98,6 +125,7 @@ export const ReviewTaskIssuesPage = () => {
     try {
       const result = await matchReviewCheckpoints(taskId);
       message.success(`Matched checkpoints: ${result.selected_count} selected, ${result.candidate_count} candidates.`);
+      await loadMatches({ page: 1, page_size: matchQuery.page_size });
     } catch {
       message.error("Failed to match checkpoints.");
     } finally {
@@ -110,7 +138,7 @@ export const ReviewTaskIssuesPage = () => {
     try {
       const result = await runCheckpointReview(taskId);
       message.success(`Checkpoint review generated ${result.issue_count} issues.`);
-      await load();
+      await Promise.all([load(), loadMatches()]);
     } catch {
       message.error("Failed to run checkpoint review.");
     } finally {
@@ -169,6 +197,13 @@ export const ReviewTaskIssuesPage = () => {
     });
   };
 
+  const handleMatchTableChange = async (pagination: TablePaginationConfig) => {
+    await loadMatches({
+      page: pagination.current ?? 1,
+      page_size: pagination.pageSize ?? 20,
+    });
+  };
+
   return (
     <div className="page">
       <div className="page-heading">
@@ -177,7 +212,7 @@ export const ReviewTaskIssuesPage = () => {
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/review-tasks")}>
             Back
           </Button>
-          <Button icon={<ReloadOutlined />} loading={loading.list} onClick={() => void load()}>
+          <Button icon={<ReloadOutlined />} loading={loading.list || loading.matches} onClick={() => void reloadAll()}>
             Reload
           </Button>
         </Space>
@@ -203,14 +238,73 @@ export const ReviewTaskIssuesPage = () => {
       ) : null}
 
       <Card title="Checkpoint Review">
-        <Space wrap size={12}>
+        <Space wrap size={12} style={{ marginBottom: 16 }}>
           <Button icon={<NodeIndexOutlined />} loading={loading.match} onClick={() => void matchCheckpoints()}>
             匹配审查点
           </Button>
           <Button type="primary" icon={<PlayCircleOutlined />} loading={loading.checkpointRun} onClick={() => void runCheckpointFlow()}>
             审查点审核
           </Button>
+          <Typography.Text type="secondary">已匹配 {matchTotal} 条</Typography.Text>
         </Space>
+        <Table<CheckpointMatchWithCheckpoint>
+          rowKey="id"
+          size="small"
+          loading={loading.matches}
+          dataSource={matches}
+          pagination={{
+            current: matchQuery.page,
+            pageSize: matchQuery.page_size,
+            total: matchTotal,
+            showSizeChanger: true,
+          }}
+          onChange={(pagination) => void handleMatchTableChange(pagination)}
+          columns={[
+            {
+              title: "Status",
+              dataIndex: "status",
+              width: 110,
+              render: (value: string) => <StatusTag status={value} />,
+            },
+            {
+              title: "Score",
+              dataIndex: "match_score",
+              width: 90,
+              render: (value: number) => Number(value).toFixed(2),
+            },
+            {
+              title: "Plan Section",
+              width: 260,
+              ellipsis: true,
+              render: (_, record) => record.section?.title || `Section #${record.section_id}`,
+            },
+            {
+              title: "Checkpoint",
+              ellipsis: true,
+              render: (_, record) => record.checkpoint?.checkpoint_name || `Checkpoint #${record.checkpoint_id}`,
+            },
+            {
+              title: "Type",
+              width: 170,
+              render: (_, record) => record.checkpoint?.checkpoint_type || "-",
+            },
+            {
+              title: "Risk",
+              width: 100,
+              render: (_, record) => <RiskTag risk={record.checkpoint?.risk_level ?? null} />,
+            },
+            {
+              title: "Reason",
+              dataIndex: "match_reason",
+              width: 240,
+              ellipsis: true,
+              render: (value: string | null) => value || "-",
+            },
+          ]}
+          expandable={{
+            expandedRowRender: (record) => <CheckpointMatchDetail match={record} />,
+          }}
+        />
       </Card>
 
       <Card>
@@ -355,6 +449,39 @@ export const ReviewTaskIssuesPage = () => {
   );
 };
 
+const CheckpointMatchDetail = ({ match }: { match: CheckpointMatchWithCheckpoint }) => (
+  <Descriptions size="small" column={2}>
+    <Descriptions.Item label="Section" span={2}>
+      {match.section?.title || `Section #${match.section_id}`}
+    </Descriptions.Item>
+    <Descriptions.Item label="Checkpoint ID">{match.checkpoint_id}</Descriptions.Item>
+    <Descriptions.Item label="Clause No">{match.checkpoint?.clause_no || "-"}</Descriptions.Item>
+    <Descriptions.Item label="Chapter Types">
+      <TagList values={match.checkpoint?.chapter_types ?? []} />
+    </Descriptions.Item>
+    <Descriptions.Item label="Targets">
+      <TagList values={match.checkpoint?.target_objects ?? []} />
+    </Descriptions.Item>
+    <Descriptions.Item label="Parameters">
+      <TagList values={match.checkpoint?.target_parameters ?? []} />
+    </Descriptions.Item>
+    <Descriptions.Item label="Expected">
+      <TagList values={match.checkpoint?.expected_items ?? []} />
+    </Descriptions.Item>
+    <Descriptions.Item label="Goal" span={2}>
+      {match.checkpoint?.check_goal || "-"}
+    </Descriptions.Item>
+    <Descriptions.Item label="Dimensions" span={2}>
+      <Typography.Text code>{formatJsonValue(match.match_dimensions)}</Typography.Text>
+    </Descriptions.Item>
+    <Descriptions.Item label="Clause" span={2}>
+      <Typography.Paragraph style={{ marginBottom: 0, whiteSpace: "pre-wrap" }}>
+        {match.checkpoint?.clause_text || "-"}
+      </Typography.Paragraph>
+    </Descriptions.Item>
+  </Descriptions>
+);
+
 const IssueDetail = ({ issue }: { issue: ReviewIssue }) => (
   <Space direction="vertical" size={16} style={{ width: "100%" }}>
     <Descriptions size="small" column={2}>
@@ -390,6 +517,25 @@ const TextBlock = ({ title, value }: { title: string; value: string | null }) =>
     <Typography.Paragraph style={{ marginTop: 6, whiteSpace: "pre-wrap" }}>{value || "-"}</Typography.Paragraph>
   </div>
 );
+
+const TagList = ({ values }: { values: string[] }) =>
+  values.length ? (
+    <Space size={4} wrap>
+      {values.map((value) => (
+        <Tag key={value}>{value}</Tag>
+      ))}
+    </Space>
+  ) : (
+    <>-</>
+  );
+
+const formatJsonValue = (value: Record<string, unknown>) => {
+  const entries = Object.entries(value || {});
+  if (!entries.length) {
+    return "-";
+  }
+  return entries.map(([key, item]) => `${key}: ${String(item)}`).join(" | ");
+};
 
 const issueStatusOptions = [
   { value: "pending_confirm", label: "pending_confirm" },
