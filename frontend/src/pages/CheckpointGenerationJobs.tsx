@@ -69,6 +69,7 @@ export const CheckpointGenerationJobsPage = () => {
   const [jobQuery, setJobQuery] = useState<CheckpointGenerationJobQuery>({ page: 1, page_size: 10 });
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const [selectedClauseId, setSelectedClauseId] = useState<number | null>(null);
+  const [expandedClauseKeys, setExpandedClauseKeys] = useState<Key[]>([]);
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   const [parseJobs, setParseJobs] = useState<PPOcrPdfJob[]>([]);
   const [importOpen, setImportOpen] = useState(false);
@@ -116,6 +117,7 @@ export const CheckpointGenerationJobsPage = () => {
         listCheckpointGenerationJobs(nextJobQuery),
       ]);
       setStandardTree(tree);
+      setExpandedClauseKeys(getClauseKeys(tree.clauses));
       setGenerationItems(itemResult);
       setJobs(jobResult.items);
       setJobTotal(jobResult.total);
@@ -396,7 +398,8 @@ export const CheckpointGenerationJobsPage = () => {
               {standardTree?.clauses.length ? (
                 <Tree
                   blockNode
-                  defaultExpandAll
+                  expandedKeys={expandedClauseKeys}
+                  onExpand={(keys) => setExpandedClauseKeys(keys)}
                   checkable={isAdmin}
                   checkedKeys={selectedRowKeys}
                   selectedKeys={selectedClauseId ? [String(selectedClauseId)] : []}
@@ -641,6 +644,8 @@ const toClauseTreeData = (
   const roots = clauses.filter((clause) => !clause.parent_id || !clauseIds.has(clause.parent_id));
   return roots.map((clause) => toClauseNode(clause, childrenByParentId, itemsByClauseId, checkpointsByClauseId));
 };
+
+const getClauseKeys = (clauses: StandardClause[]): Key[] => clauses.map((clause) => String(clause.id));
 
 const toClauseNode = (
   clause: StandardClause,

@@ -69,6 +69,7 @@ export const ReviewCheckpointsPage = () => {
   const [selectedStandardId, setSelectedStandardId] = useState<number | null>(null);
   const [checkpointTree, setCheckpointTree] = useState<ReviewCheckpointTreeResult | null>(null);
   const [selectedClauseId, setSelectedClauseId] = useState<number | null>(null);
+  const [expandedClauseKeys, setExpandedClauseKeys] = useState<string[]>([]);
   const [query, setQuery] = useState<ReviewCheckpointQuery>({});
   const [editing, setEditing] = useState<ReviewCheckpoint | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -101,12 +102,14 @@ export const ReviewCheckpointsPage = () => {
     if (!standardId) {
       setCheckpointTree(null);
       setSelectedClauseId(null);
+      setExpandedClauseKeys([]);
       return;
     }
     setLoading((current) => ({ ...current, tree: true }));
     try {
       const result = await getReviewCheckpointTree({ ...nextQuery, standard_id: standardId });
       setCheckpointTree(result);
+      setExpandedClauseKeys(getClauseKeys(result.clauses));
       setQuery(nextQuery);
       setSelectedClauseId((current) =>
         preserveSelection && current && result.clauses.some((clause) => clause.id === current)
@@ -342,7 +345,8 @@ export const ReviewCheckpointsPage = () => {
               {checkpointTree?.clauses.length ? (
                 <Tree
                   blockNode
-                  defaultExpandAll
+                  expandedKeys={expandedClauseKeys}
+                  onExpand={(keys) => setExpandedClauseKeys(keys.map(String))}
                   selectedKeys={selectedClauseId ? [String(selectedClauseId)] : []}
                   treeData={toClauseTreeData(checkpointTree.clauses, checkpointsByClauseId)}
                   onSelect={(keys) => setSelectedClauseId(keys[0] ? Number(keys[0]) : null)}
@@ -700,6 +704,8 @@ const toClauseTreeData = (
   const roots = clauses.filter((clause) => !clause.parent_id || !clauseIds.has(clause.parent_id));
   return roots.map((clause) => toClauseNode(clause, childrenByParentId, checkpointsByClauseId));
 };
+
+const getClauseKeys = (clauses: StandardClause[]): string[] => clauses.map((clause) => String(clause.id));
 
 const toClauseNode = (
   clause: StandardClause,

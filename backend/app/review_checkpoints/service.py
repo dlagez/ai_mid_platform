@@ -49,6 +49,7 @@ CHECKPOINT_PROMPT = """你是一名施工规范审查点抽取助手。
 
 规范名称：{standard_name}
 条文编号：{clause_no}
+条文标题：{clause_title}
 条文原文：{clause_content}
 
 输出格式：
@@ -619,10 +620,13 @@ class ReviewCheckpointService:
             return {"checkpoints": self._heuristic_checkpoints(clause)}
 
         model_service = ModelService()
+        clause_title = clause.title or ""
+        clause_content = (clause.content or "").strip() or clause_title
         prompt = CHECKPOINT_PROMPT.format(
             standard_name=standard.standard_name if standard else "",
             clause_no=clause.clause_no or "",
-            clause_content=clause.content or "",
+            clause_title=clause_title,
+            clause_content=clause_content,
         )
         payload = {
             "model": model_service.default_model,
@@ -644,6 +648,7 @@ class ReviewCheckpointService:
             "clause_no": clause.clause_no,
             "clause_title": clause.title,
             "clause_chars": len(clause.content or ""),
+            "prompt_clause_chars": len(clause_content),
             "use_llm": use_llm,
         }
         with langfuse_observation(
