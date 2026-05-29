@@ -86,6 +86,7 @@ export type GenerateCheckpointsRequest = {
   standard_id?: number;
   clause_ids: number[];
   use_llm: boolean;
+  concurrency?: number;
 };
 
 export type GenerateCheckpointsResult = {
@@ -100,6 +101,7 @@ export type CheckpointGenerationJob = {
   standard_id: number | null;
   clause_ids: number[];
   use_llm: boolean;
+  concurrency: number;
   status: string;
   total_clauses: number;
   processed_clauses: number;

@@ -733,6 +733,7 @@ class ReviewCheckpointGenerationJob(Base):
     standard_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("standard_document.id", ondelete="SET NULL"), nullable=True, index=True)
     clause_ids: Mapped[list] = mapped_column(JSONB, default=list)
     use_llm: Mapped[bool] = mapped_column(Boolean, default=True)
+    concurrency: Mapped[int] = mapped_column(Integer, default=5)
     status: Mapped[str] = mapped_column(String(50), default="queued", index=True)
     total_clauses: Mapped[int] = mapped_column(Integer, default=0)
     processed_clauses: Mapped[int] = mapped_column(Integer, default=0)

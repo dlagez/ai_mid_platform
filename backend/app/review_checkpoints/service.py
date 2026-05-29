@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections.abc import Generator
@@ -16,6 +17,7 @@ from app.db.models import (
     StandardClause,
     StandardDocument,
 )
+from app.db.session import SessionLocal
 from app.review_checkpoints.schemas import (
     GenerateCheckpointsFromClausesRequest,
     ReviewCheckpointCreate,
@@ -36,6 +38,8 @@ CHECKPOINT_TYPES = {
 }
 CHECKPOINT_STATUSES = {"draft", "active", "disabled", "archived"}
 GENERATION_JOB_STATUSES = {"queued", "running", "success", "partial_success", "failed"}
+DEFAULT_GENERATION_CONCURRENCY = 5
+MAX_GENERATION_CONCURRENCY = 10
 
 CHECKPOINT_PROMPT = """你是一名施工规范审查点抽取助手。
 任务：将规范条文转换为施工方案审查点。一个条文可以生成多个审查点。
@@ -238,6 +242,7 @@ class ReviewCheckpointService:
             standard_id=standard_id,
             clause_ids=clause_ids,
             use_llm=data.use_llm,
+            concurrency=_normalize_generation_concurrency(data.concurrency),
             status="queued",
             total_clauses=len(clause_ids),
             processed_clauses=len(missing),
@@ -409,58 +414,37 @@ class ReviewCheckpointService:
         if job.status not in {"queued", "failed"}:
             return {"job_id": job.id, "status": job.status, "message": "job already started"}
 
+        concurrency = _normalize_generation_concurrency(getattr(job, "concurrency", None))
         job.status = "running"
         job.started_at = datetime.utcnow()
         job.error_message = None
         db.commit()
+        job_id_value = job.id
+        use_llm = job.use_llm
 
         items = (
             db.query(ReviewCheckpointGenerationItem)
-            .filter(ReviewCheckpointGenerationItem.job_id == job.id)
+            .filter(ReviewCheckpointGenerationItem.job_id == job_id_value)
             .filter(ReviewCheckpointGenerationItem.status == "queued")
             .order_by(ReviewCheckpointGenerationItem.id.asc())
             .all()
         )
 
         try:
-            for item in items:
-                item.status = "running"
-                item.started_at = datetime.utcnow()
-                db.commit()
+            semaphore = asyncio.Semaphore(concurrency)
 
-                clause = db.query(StandardClause).filter(StandardClause.id == item.clause_id).first()
-                if not clause:
-                    item.status = "failed"
-                    item.message = "clause not found"
-                    item.finished_at = datetime.utcnow()
-                    self._refresh_generation_job_summary(db, job.id)
-                    continue
-
-                standard = db.query(StandardDocument).filter(StandardDocument.id == clause.standard_id).first()
-                try:
-                    checkpoint_ids, skipped_reason = await self._create_checkpoints_for_clause(
-                        db,
-                        standard,
-                        clause,
-                        use_llm=job.use_llm,
-                        job_id=job.id,
-                        serial_offset=job.created_count + 1,
+            async def run_item(item_id: int, serial_offset: int) -> None:
+                async with semaphore:
+                    await self._run_generation_job_item(
+                        job_id=job_id_value,
+                        item_id=item_id,
+                        use_llm=use_llm,
+                        serial_offset=serial_offset,
                     )
-                    item.checkpoint_ids = checkpoint_ids
-                    item.created_count = len(checkpoint_ids)
-                    item.status = "skipped" if skipped_reason else "success"
-                    item.message = skipped_reason or f"created {len(checkpoint_ids)} checkpoint(s)"
-                    item.finished_at = datetime.utcnow()
-                    db.commit()
-                except Exception as exc:
-                    db.rollback()
-                    item = db.query(ReviewCheckpointGenerationItem).filter(ReviewCheckpointGenerationItem.id == item.id).first()
-                    if item:
-                        item.status = "failed"
-                        item.message = str(exc)
-                        item.finished_at = datetime.utcnow()
-                        db.commit()
-                self._refresh_generation_job_summary(db, job.id)
+
+            await asyncio.gather(
+                *(run_item(item.id, index) for index, item in enumerate(items, start=1)),
+            )
         except Exception as exc:
             job = self.get_generation_job(db, job_id)
             job.status = "failed"
@@ -469,9 +453,64 @@ class ReviewCheckpointService:
             db.commit()
             raise
 
-        self._refresh_generation_job_summary(db, job.id, finalize=True)
-        job = self.get_generation_job(db, job.id)
+        self._refresh_generation_job_summary(db, job_id_value, finalize=True)
+        job = self.get_generation_job(db, job_id_value)
         return {"job_id": job.id, "status": job.status, "created_count": job.created_count}
+
+    async def _run_generation_job_item(
+        self,
+        *,
+        job_id: int,
+        item_id: int,
+        use_llm: bool,
+        serial_offset: int,
+    ) -> None:
+        db = SessionLocal()
+        try:
+            item = db.query(ReviewCheckpointGenerationItem).filter(ReviewCheckpointGenerationItem.id == item_id).first()
+            if not item or item.status != "queued":
+                return
+
+            item.status = "running"
+            item.started_at = datetime.utcnow()
+            db.commit()
+
+            clause = db.query(StandardClause).filter(StandardClause.id == item.clause_id).first()
+            if not clause:
+                item.status = "failed"
+                item.message = "clause not found"
+                item.finished_at = datetime.utcnow()
+                db.commit()
+                self._refresh_generation_job_summary(db, job_id)
+                return
+
+            standard = db.query(StandardDocument).filter(StandardDocument.id == clause.standard_id).first()
+            try:
+                checkpoint_ids, skipped_reason = await self._create_checkpoints_for_clause(
+                    db,
+                    standard,
+                    clause,
+                    use_llm=use_llm,
+                    job_id=job_id,
+                    serial_offset=serial_offset,
+                )
+                item.checkpoint_ids = checkpoint_ids
+                item.created_count = len(checkpoint_ids)
+                item.status = "skipped" if skipped_reason else "success"
+                item.message = skipped_reason or f"created {len(checkpoint_ids)} checkpoint(s)"
+                item.finished_at = datetime.utcnow()
+                db.commit()
+            except Exception as exc:
+                db.rollback()
+                item = db.query(ReviewCheckpointGenerationItem).filter(ReviewCheckpointGenerationItem.id == item_id).first()
+                if item:
+                    item.status = "failed"
+                    item.message = str(exc)
+                    item.finished_at = datetime.utcnow()
+                    db.commit()
+            self._refresh_generation_job_summary(db, job_id)
+        finally:
+            db.close()
 
     async def generate_from_standard_clauses(
         self,
@@ -750,6 +789,12 @@ class ReviewCheckpointService:
             raise PlatformError(f"Invalid checkpoint_type: {checkpoint_type}", status_code=400)
         if status and status not in CHECKPOINT_STATUSES:
             raise PlatformError(f"Invalid checkpoint status: {status}", status_code=400)
+
+
+def _normalize_generation_concurrency(value: int | None) -> int:
+    if value is None:
+        return DEFAULT_GENERATION_CONCURRENCY
+    return max(1, min(int(value), MAX_GENERATION_CONCURRENCY))
 
 
 def _as_list(value: Any) -> list:

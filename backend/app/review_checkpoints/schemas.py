@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.standards.schemas import StandardClauseRead, StandardDocumentRead
 
@@ -104,6 +104,7 @@ class GenerateCheckpointsFromClausesRequest(BaseModel):
     standard_id: int | None = None
     clause_ids: list[int]
     use_llm: bool = True
+    concurrency: int = Field(default=5, ge=1, le=10)
 
 
 class GenerateCheckpointsFromClausesResponse(BaseModel):
@@ -118,6 +119,7 @@ class CheckpointGenerationJobRead(BaseModel):
     standard_id: int | None
     clause_ids: list
     use_llm: bool
+    concurrency: int
     status: str
     total_clauses: int
     processed_clauses: int

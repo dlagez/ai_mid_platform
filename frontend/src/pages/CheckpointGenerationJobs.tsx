@@ -11,6 +11,7 @@ import {
   Empty,
   Form,
   Input,
+  InputNumber,
   Modal,
   Progress,
   Row,
@@ -74,6 +75,7 @@ export const CheckpointGenerationJobsPage = () => {
   const [parseJobs, setParseJobs] = useState<PPOcrPdfJob[]>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [useLlm, setUseLlm] = useState(true);
+  const [generationConcurrency, setGenerationConcurrency] = useState(5);
   const [loading, setLoading] = useState({
     standards: false,
     workspace: false,
@@ -175,7 +177,12 @@ export const CheckpointGenerationJobsPage = () => {
     }
     setLoading((current) => ({ ...current, queue: true }));
     try {
-      const job = await createCheckpointGenerationJob({ standard_id: selectedStandardId, clause_ids: clauseIds, use_llm: useLlm });
+      const job = await createCheckpointGenerationJob({
+        standard_id: selectedStandardId,
+        clause_ids: clauseIds,
+        use_llm: useLlm,
+        concurrency: generationConcurrency,
+      });
       message.success(`Checkpoint generation job #${job.id} queued.`);
       setSelectedRowKeys([]);
       setSelectedJobId(job.id);
@@ -302,6 +309,15 @@ export const CheckpointGenerationJobsPage = () => {
               使用 LLM
             </Checkbox>
           </Form.Item>
+          <Form.Item label="并发数">
+            <InputNumber
+              min={1}
+              max={10}
+              value={generationConcurrency}
+              onChange={(value) => setGenerationConcurrency(value ?? 1)}
+              style={{ width: 96 }}
+            />
+          </Form.Item>
           <Form.Item>
             <Tooltip title={getGenerateTooltip(isAdmin, selectedRowKeys.length)}>
               <Button
@@ -369,6 +385,7 @@ export const CheckpointGenerationJobsPage = () => {
               ),
             },
             { title: "Created", dataIndex: "created_count", width: 100 },
+            { title: "Concurrency", dataIndex: "concurrency", width: 120 },
             { title: "Failed", dataIndex: "failed_count", width: 90 },
             { title: "Skipped", dataIndex: "skipped_count", width: 90 },
             {
