@@ -192,6 +192,17 @@ async def list_review_checkpoint_generation_items_global(
     return CheckpointGenerationItemList(items=items, total=total, page=page, page_size=page_size)
 
 
+@router.post("/archive-standard/{standard_id}")
+async def archive_standard_checkpoints(
+    standard_id: int,
+    _: Annotated[CurrentUser, Depends(require_admin)],
+    service: Annotated[ReviewCheckpointService, Depends(get_review_checkpoint_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> dict:
+    count = service.archive_standard_checkpoints(db, standard_id)
+    return {"archived_count": count, "standard_id": standard_id}
+
+
 @router.get("/{checkpoint_id}", response_model=ReviewCheckpointRead)
 async def get_review_checkpoint(
     checkpoint_id: int,

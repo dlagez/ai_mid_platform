@@ -38,6 +38,7 @@ import {
   getReviewCheckpointTree,
   listCheckpointGenerationJobs,
   updateReviewCheckpoint,
+  archiveStandardCheckpoints,
   type CheckpointGenerationJob,
   type ReviewCheckpoint,
   type ReviewCheckpointPayload,
@@ -74,7 +75,7 @@ export const ReviewCheckpointsPage = () => {
   const [editing, setEditing] = useState<ReviewCheckpoint | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedCheckpointId, setSelectedCheckpointId] = useState<number | null>(null);
-  const [loading, setLoading] = useState({ standards: false, tree: false, save: false, create: false, delete: false, jobs: false });
+  const [loading, setLoading] = useState({ standards: false, tree: false, save: false, create: false, delete: false, jobs: false, archiveStandard: false });
   const [filterForm] = Form.useForm<CheckpointFilterValues>();
   const [editForm] = Form.useForm<CheckpointFormValues>();
   const [createForm] = Form.useForm<CheckpointFormValues>();
@@ -234,6 +235,22 @@ export const ReviewCheckpointsPage = () => {
     }
   };
 
+  const archiveStandard = async () => {
+    if (!selectedStandardId) {
+      return;
+    }
+    setLoading((current) => ({ ...current, archiveStandard: true }));
+    try {
+      const result = await archiveStandardCheckpoints(selectedStandardId);
+      message.success(`Archived ${result.archived_count} checkpoint(s) for this standard.`);
+      await loadCheckpointTree();
+    } catch {
+      message.error("Failed to archive checkpoints for this standard.");
+    } finally {
+      setLoading((current) => ({ ...current, archiveStandard: false }));
+    }
+  };
+
   const checkpointsByClauseId = useMemo(() => groupCheckpointsByClauseId(checkpointTree?.checkpoints ?? []), [checkpointTree]);
   const selectedClause = useMemo(
     () => (checkpointTree && selectedClauseId ? checkpointTree.clauses.find((clause) => clause.id === selectedClauseId) ?? null : null),
@@ -308,6 +325,20 @@ export const ReviewCheckpointsPage = () => {
               onChange={(value) => void selectStandard(value)}
             />
           </Form.Item>
+          {isAdmin && selectedStandardId ? (
+            <Form.Item>
+              <Popconfirm
+                title="Archive all checkpoints for this standard?"
+                okText="Archive All"
+                okButtonProps={{ danger: true }}
+                onConfirm={() => void archiveStandard()}
+              >
+                <Button danger icon={<DeleteOutlined />} loading={loading.archiveStandard}>
+                  Archive Standard
+                </Button>
+              </Popconfirm>
+            </Form.Item>
+          ) : null}
           <Form.Item name="status" label="Status">
             <Select allowClear style={{ width: 150 }} options={checkpointStatusOptions} />
           </Form.Item>

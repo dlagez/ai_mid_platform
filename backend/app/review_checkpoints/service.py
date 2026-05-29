@@ -210,6 +210,18 @@ class ReviewCheckpointService:
         db.refresh(row)
         return row
 
+    def archive_standard_checkpoints(self, db: Session, standard_id: int) -> int:
+        count = (
+            db.query(ReviewCheckpoint)
+            .filter(
+                ReviewCheckpoint.standard_id == standard_id,
+                ReviewCheckpoint.status != "archived",
+            )
+            .update({"status": "archived", "updated_at": datetime.utcnow()}, synchronize_session="fetch")
+        )
+        db.commit()
+        return count
+
     def delete_checkpoint(self, db: Session, checkpoint_id: int) -> ReviewCheckpoint:
         row = self.get_checkpoint(db, checkpoint_id)
         row.status = "archived"

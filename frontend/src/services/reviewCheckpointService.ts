@@ -198,6 +198,13 @@ export const deleteReviewCheckpoint = async (id: number) => {
   return data;
 };
 
+export const archiveStandardCheckpoints = async (standardId: number) => {
+  const { data } = await apiClient.post<{ archived_count: number; standard_id: number }>(
+    `/review-checkpoints/archive-standard/${standardId}`,
+  );
+  return data;
+};
+
 export const generateReviewCheckpoints = async (payload: GenerateCheckpointsRequest) => {
   const { data } = await apiClient.post<GenerateCheckpointsResult>(
     "/review-checkpoints/generate-from-standard-clauses",
