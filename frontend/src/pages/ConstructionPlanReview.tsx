@@ -65,7 +65,7 @@ type ParsedDocumentUploadPageProps = {
 };
 
 const DEFAULT_PARSE_CONCURRENCY = 3;
-const DEFAULT_PROFILE_CONCURRENCY = 3;
+const DEFAULT_PROFILE_CONCURRENCY = 6;
 
 const ParsedDocumentUploadPage = ({
   documentType,

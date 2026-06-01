@@ -233,7 +233,7 @@ async def restart_chapter_profile_job(
     _: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
     profile_service: Annotated[ChapterProfileService, Depends(get_chapter_profile_service)],
     db: Annotated[Session, Depends(get_db)],
-    concurrency: int = Query(3, ge=1, le=8),
+    concurrency: int = Query(6, ge=1, le=8),
 ) -> CreateChapterProfileGenerationJobResponse:
     job = profile_service.restart_generation_job(db, job_id, concurrency=concurrency)
     return CreateChapterProfileGenerationJobResponse(job=job)
@@ -256,7 +256,7 @@ async def resume_chapter_profile_job(
     _: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
     profile_service: Annotated[ChapterProfileService, Depends(get_chapter_profile_service)],
     db: Annotated[Session, Depends(get_db)],
-    concurrency: int = Query(3, ge=1, le=8),
+    concurrency: int = Query(6, ge=1, le=8),
 ) -> CreateChapterProfileGenerationJobResponse:
     job = profile_service.resume_generation_job(db, job_id, concurrency=concurrency)
     return CreateChapterProfileGenerationJobResponse(job=job)
@@ -385,7 +385,7 @@ async def create_chapter_profile_job(
     profile_service: Annotated[ChapterProfileService, Depends(get_chapter_profile_service)],
     db: Annotated[Session, Depends(get_db)],
     section_parse_mode: Annotated[str | None, Query()] = None,
-    concurrency: int = Query(3, ge=1, le=8),
+    concurrency: int = Query(6, ge=1, le=8),
 ) -> CreateChapterProfileGenerationJobResponse:
     try:
         job = profile_service.create_generation_job(

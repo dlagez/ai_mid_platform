@@ -112,7 +112,7 @@ class ChapterProfileService:
         db: Session,
         document_id: int,
         section_parse_mode: str | None = None,
-        concurrency: int = 3,
+        concurrency: int = 6,
         created_by: int | None = None,
     ) -> ChapterProfileGenerationJob:
         document = self._ensure_construction_plan_document(db, document_id)
@@ -227,7 +227,7 @@ class ChapterProfileService:
         self,
         db: Session,
         job_id: int,
-        concurrency: int = 3,
+        concurrency: int = 6,
     ) -> ChapterProfileGenerationJob:
         job = self.get_generation_job(db, job_id)
         retryable_statuses = {"queued", "running", "failed"}
@@ -302,7 +302,7 @@ class ChapterProfileService:
         self,
         db: Session,
         job_id: int,
-        concurrency: int = 3,
+        concurrency: int = 6,
     ) -> ChapterProfileGenerationJob:
         job = self.get_generation_job(db, job_id)
         if job.status != "paused":
