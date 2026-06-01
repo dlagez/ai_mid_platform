@@ -6,8 +6,6 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.review_rules.schemas import GenerateRuleCandidatesRequest, GenerateRuleCandidatesResponse
-from app.review_rules.service import ReviewRuleService, get_review_rule_service
 from app.standards.schemas import (
     ImportStandardFromDocumentRequest,
     ImportStandardFromDocumentResponse,
@@ -125,17 +123,6 @@ async def create_standard_clause(
     db: Annotated[Session, Depends(get_db)],
 ) -> StandardClauseRead:
     return service.create_clause(db, standard_id, payload)
-
-
-@router.post("/{standard_id}/generate-rule-candidates", response_model=GenerateRuleCandidatesResponse)
-async def generate_rule_candidates(
-    standard_id: int,
-    payload: GenerateRuleCandidatesRequest,
-    _: Annotated[CurrentUser, Depends(require_admin)],
-    service: Annotated[ReviewRuleService, Depends(get_review_rule_service)],
-    db: Annotated[Session, Depends(get_db)],
-) -> GenerateRuleCandidatesResponse:
-    return await service.generate_candidates(db, standard_id, payload)
 
 
 @router.get("/clauses/{clause_id}", response_model=StandardClauseRead)

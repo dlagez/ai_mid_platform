@@ -4,7 +4,7 @@ from collections.abc import Generator
 
 from sqlalchemy.orm import Session
 
-from app.db.models import PlanDocument, ReviewIssue, ReviewTask, ReviewTemplate
+from app.db.models import PlanDocument, ReviewTask, ReviewTemplate
 from app.review_tasks.schemas import ReviewTaskCreate, ReviewTaskUpdate
 from app.rule_engine.engine import run_review_task
 from app.utils.exceptions import PlatformError
@@ -89,36 +89,6 @@ class ReviewTaskService:
             "major_issue_count": result.get("major_issue_count"),
             "minor_issue_count": result.get("minor_issue_count"),
         }
-
-    def list_issues(
-        self,
-        db: Session,
-        task_id: int,
-        *,
-        version: int | None = None,
-        status: str | None = None,
-        risk_level: str | None = None,
-        issue_type: str | None = None,
-        page: int = 1,
-        page_size: int = 20,
-    ) -> tuple[list[ReviewIssue], int]:
-        task = self.get_task(db, task_id)
-        query = db.query(ReviewIssue).filter(ReviewIssue.task_id == task_id)
-        query = query.filter(ReviewIssue.version == (version or task.version))
-        if status:
-            query = query.filter(ReviewIssue.status == status)
-        if risk_level:
-            query = query.filter(ReviewIssue.risk_level == risk_level)
-        if issue_type:
-            query = query.filter(ReviewIssue.issue_type == issue_type)
-        total = query.count()
-        items = (
-            query.order_by(ReviewIssue.created_at.desc(), ReviewIssue.id.desc())
-            .offset(max(page - 1, 0) * page_size)
-            .limit(page_size)
-            .all()
-        )
-        return items, total
 
     def _ensure_plan_document(self, db: Session, document_id: int) -> PlanDocument:
         document = db.query(PlanDocument).filter(PlanDocument.id == document_id).first()

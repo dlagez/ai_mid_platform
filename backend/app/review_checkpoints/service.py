@@ -46,7 +46,7 @@ CHECKPOINT_PROMPT = """你是一名施工规范审查点抽取助手。
 
 要求：
 1. 只能基于条文原文生成，不得编造。
-2. 审查点用于后续与施工方案章节画像匹配，不直接生成 ReviewIssue。
+2. 审查点用于后续与施工方案章节画像匹配。
 3. 每个审查点必须包含 chapter_types、target_objects、target_parameters、check_goal、check_method。
 4. 如果条文无法形成明确审查点，输出空数组。
 5. 只输出 JSON，不要输出 Markdown。

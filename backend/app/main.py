@@ -6,9 +6,7 @@ from app.api.v1 import (
     documents,
     knowledge,
     models,
-    review_issues,
     review_checkpoints,
-    review_rules,
     review_tasks,
     review_templates,
     standards,
@@ -48,10 +46,8 @@ def create_app() -> FastAPI:
     )
     app.include_router(standards.router, prefix="/api/v1/standards", tags=["standards"])
     app.include_router(standards.clauses_router, prefix="/api/v1/standard-clauses", tags=["standards"])
-    app.include_router(review_rules.router, prefix="/api/v1", tags=["review-rules"])
     app.include_router(review_checkpoints.router, prefix="/api/v1/review-checkpoints", tags=["review-checkpoints"])
     app.include_router(review_tasks.router, prefix="/api/v1/review-tasks", tags=["review-tasks"])
-    app.include_router(review_issues.router, prefix="/api/v1/review-issues", tags=["review-issues"])
     app.include_router(
         review_templates.router,
         prefix="/api/review-templates",
@@ -71,7 +67,6 @@ def create_app() -> FastAPI:
         tags=["standards"],
         include_in_schema=False,
     )
-    app.include_router(review_rules.router, prefix="/api", tags=["review-rules"], include_in_schema=False)
     app.include_router(
         review_checkpoints.router,
         prefix="/api/review-checkpoints",
@@ -79,7 +74,6 @@ def create_app() -> FastAPI:
         include_in_schema=False,
     )
     app.include_router(review_tasks.router, prefix="/api/review-tasks", tags=["review-tasks"], include_in_schema=False)
-    app.include_router(review_issues.router, prefix="/api/review-issues", tags=["review-issues"], include_in_schema=False)
 
     register_exception_handlers(app)
 
