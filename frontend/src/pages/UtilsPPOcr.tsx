@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Button,
   Card,
@@ -50,8 +50,10 @@ const { TextArea } = Input;
 
 export const UtilsPPOcrPage = () => {
   const [jobs, setJobs] = useState<PPOcrPdfJob[]>([]);
+  const jobsRef = useRef<PPOcrPdfJob[]>(jobs);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [selectedDetail, setSelectedDetail] = useState<PPOcrPdfJobDetail | null>(null);
+  const selectedDetailRef = useRef<PPOcrPdfJobDetail | null>(selectedDetail);
   const [sectionsResult, setSectionsResult] = useState<PPOcrPdfSectionsResult | null>(null);
   const [selectedSection, setSelectedSection] = useState<PPOcrResultSection | null>(null);
   const [expandedSectionKeys, setExpandedSectionKeys] = useState<string[]>([]);
@@ -79,11 +81,13 @@ export const UtilsPPOcrPage = () => {
     setLoading((s) => ({ ...s, jobs: true }));
     try {
       const nextJobs = await listPPOcrPdfJobs();
+      jobsRef.current = nextJobs;
       setJobs(nextJobs);
-      if (selectedDetail) {
-        const updated = nextJobs.find((job) => job.id === selectedDetail.job.id);
+      if (selectedDetailRef.current) {
+        const updated = nextJobs.find((job) => job.id === selectedDetailRef.current.job.id);
         if (updated) {
           const detail = await getPPOcrPdfJob(updated.id);
+          selectedDetailRef.current = detail;
           setSelectedDetail(detail);
           if (["success", "partial_success", "failed"].includes(detail.job.status)) {
             const result = await getPPOcrPdfMarkdown(detail.job.id);
@@ -92,6 +96,7 @@ export const UtilsPPOcrPage = () => {
           }
         }
       }
+      startPollingIfActive(nextJobs);
     } catch {
       message.error("Failed to load PPOCR jobs.");
     } finally {
@@ -99,19 +104,52 @@ export const UtilsPPOcrPage = () => {
     }
   };
 
-  useEffect(() => {
-    void refreshJobs();
-  }, []);
+  const refreshJobProgress = async () => {
+    try {
+      const nextJobs = await listPPOcrPdfJobs();
+      jobsRef.current = nextJobs;
+      setJobs(nextJobs);
+      const currentDetail = selectedDetailRef.current;
+      if (currentDetail) {
+        const updated = nextJobs.find((job) => job.id === currentDetail.job.id);
+        if (updated && ["queued", "running"].includes(updated.status)) {
+          const detail = await getPPOcrPdfJob(updated.id);
+          selectedDetailRef.current = detail;
+          setSelectedDetail(detail);
+        }
+      }
+      const hasActive = nextJobs.some((job) => ["queued", "running"].includes(job.status));
+      if (!hasActive) {
+        stopPolling();
+      }
+    } catch {
+      // Silently ignore progress refresh errors.
+    }
+  };
+
+  const pollingTimerRef = useRef<ReturnType<typeof window.setInterval> | null>(null);
+
+  const stopPolling = () => {
+    if (pollingTimerRef.current !== null) {
+      window.clearInterval(pollingTimerRef.current);
+      pollingTimerRef.current = null;
+    }
+  };
+
+  const startPollingIfActive = (currentJobs: PPOcrPdfJob[]) => {
+    if (currentJobs.some((job) => ["queued", "running"].includes(job.status))) {
+      if (pollingTimerRef.current === null) {
+        pollingTimerRef.current = window.setInterval(() => {
+          void refreshJobProgress();
+        }, 3000);
+      }
+    }
+  };
 
   useEffect(() => {
-    if (!jobs.some((job) => ["queued", "running"].includes(job.status))) {
-      return undefined;
-    }
-    const timer = window.setInterval(() => {
-      void refreshJobs();
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [jobs, selectedDetail]);
+    void refreshJobs();
+    return () => stopPolling();
+  }, []);
 
   const handleUpload = async () => {
     const originFile = fileList[0]?.originFileObj;
@@ -137,6 +175,7 @@ export const UtilsPPOcrPage = () => {
     setLoading((s) => ({ ...s, detail: true }));
     try {
       const detail = await getPPOcrPdfJob(jobId);
+      selectedDetailRef.current = detail;
       setSelectedDetail(detail);
       if (["success", "partial_success", "failed"].includes(detail.job.status)) {
         setLoading((s) => ({ ...s, markdown: true }));
