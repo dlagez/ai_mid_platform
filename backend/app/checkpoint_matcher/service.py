@@ -51,7 +51,10 @@ class CheckpointMatcherService:
 
         profiles = (
             db.query(ChapterReviewProfile)
-            .filter(ChapterReviewProfile.task_id == task.id)
+            .filter(
+                ChapterReviewProfile.task_id == task.id,
+                ChapterReviewProfile.status == "active",
+            )
             .order_by(ChapterReviewProfile.id.asc())
             .all()
         )
@@ -61,6 +64,7 @@ class CheckpointMatcherService:
                 .filter(
                     ChapterReviewProfile.task_id.is_(None),
                     ChapterReviewProfile.document_id == task.plan_document_id,
+                    ChapterReviewProfile.status == "active",
                 )
                 .order_by(ChapterReviewProfile.id.asc())
                 .all()
@@ -73,14 +77,14 @@ class CheckpointMatcherService:
 
         checkpoints = db.query(ReviewCheckpoint).filter(ReviewCheckpoint.status == "active").order_by(ReviewCheckpoint.id.asc()).all()
 
-        selected_count = 0
-        candidate_count = 0
         existing_rows = (
             db.query(CheckpointMatchResult)
             .filter(CheckpointMatchResult.task_id == task.id)
             .all()
         )
         existing_by_key = {(row.section_id, row.checkpoint_id): row for row in existing_rows}
+        best_score_by_key: dict[tuple[int, int], float] = {}
+        status_by_key: dict[tuple[int, int], str] = {}
         for profile in profiles:
             scored_matches = []
             for checkpoint in checkpoints:
@@ -100,12 +104,14 @@ class CheckpointMatcherService:
                 score = scored["score"]
                 dimensions = scored["dimensions"]
                 reason = scored["reason"]
+                row_key = (profile.section_id, checkpoint.id)
+                previous_score = best_score_by_key.get(row_key)
+                if previous_score is not None and previous_score > score:
+                    continue
+                best_score_by_key[row_key] = score
                 status = "selected" if checkpoint.id in selected_checkpoint_ids else "candidate"
-                if status == "selected":
-                    selected_count += 1
-                else:
-                    candidate_count += 1
-                row = existing_by_key.get((profile.section_id, checkpoint.id))
+                status_by_key[row_key] = status
+                row = existing_by_key.get(row_key)
                 values = {
                     "task_id": task.id,
                     "section_id": profile.section_id,
@@ -122,12 +128,12 @@ class CheckpointMatcherService:
                 else:
                     row = CheckpointMatchResult(**values)
                     db.add(row)
-                    existing_by_key[(profile.section_id, checkpoint.id)] = row
+                    existing_by_key[row_key] = row
         db.commit()
         return {
             "task_id": task.id,
-            "selected_count": selected_count,
-            "candidate_count": candidate_count,
+            "selected_count": sum(1 for status in status_by_key.values() if status == "selected"),
+            "candidate_count": sum(1 for status in status_by_key.values() if status == "candidate"),
             "items": [],
         }
 

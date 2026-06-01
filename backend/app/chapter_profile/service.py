@@ -30,24 +30,63 @@ COMPLETED_GENERATION_ITEM_STATUSES = {"success", "rule_only"}
 PROCESSED_GENERATION_ITEM_STATUSES = {"success", "rule_only", "failed", "cancelled"}
 TERMINAL_GENERATION_JOB_STATUSES = {"success", "partial_success", "failed", "cancelled"}
 
-PROFILE_EXTRACTION_PROMPT = """你是一名施工方案章节画像抽取助手。
+PROFILE_EXTRACTION_PROMPT = """你是一名施工方案最小证据点抽取助手。
 
-请基于施工方案章节标题和正文，抽取用于“规范审查点匹配”的最小证据点。
+请基于施工方案章节标题和正文，抽取用于“规范规则点匹配”的最小方案证据点。
+
 只输出 JSON，不要输出 Markdown，不要添加解释性文字。
 
 重要原则：
-1. evidence_text 必须是章节中可作为审查依据的最小方案证据点。
-2. object_terms 必须来自原文或标题中的对象词，例如“立柱”“扫地杆”“垫板”。
-3. source_text 是 evidence_text 所在原始句子或段落。
-4. confidence 为 0-1 小数，表示抽取可信度。
+
+1. evidence_points 必须是数组，因为一个章节中可能包含多个最小证据点。
+
+2. evidence_text 必须来自施工方案原文，是可作为规范审查依据的最小方案证据点。
+
+3. 最小证据点不是越短越好，而是应满足“一个独立审查语义 + 必要上下文”。
+
+4. 如果两个短句属于同一施工场景、同一对象或同一参数约束，应合并为一个 evidence_text，避免失去上下文。
+    例如：“每根立柱底部应设置垫板，垫板厚度不得小于50mm”应作为一个证据点，而不要拆成“设置垫板”和“垫板厚度50mm”两个孤立点。
+
+5. 如果一个长句包含多个不同审查语义，应拆分为多个 evidence_text。
+    例如“下层支架严禁拆除”和“上下层支架立柱位置对应”可合并为一个上层/下层支架场景证据点；“梁下立杆不对应时局部加设立杆”应单独作为一个证据点。
+
+6. object_terms 必须来自章节标题或正文中的对象词，例如“立柱”“立杆”“扫地杆”“垫板”“上层支架”“下层支架”“水平拉杆”“剪刀撑”等。
+
+7. object_terms 应尽量覆盖 evidence_text 中的核心审查对象，不要加入原文没有出现且无法直接推断的对象。
+
+8. 不要判断是否符合规范，不要生成整改意见，不要引用规范条文，只抽取施工方案中已经写明的证据点。
+
+9. confidence 为 0-1 小数，表示该证据点抽取可信度。
+
+10. 如果章节正文中没有可审查的具体措施、参数、禁止项、条件项或对象关系，则 evidence_points 输出空数组。
+
+
+拆分示例：
+原文：
+“每根立柱底部应设置垫板，垫板厚度不得小于50mm，支设上层支架时下层支架严禁拆除，且上层支架的立柱位置应与下层支架立柱位置对应。梁下立杆如有不对应情况，下层顶板立杆局部加设立杆，保证上下层立杆对应。”
+
+应拆分为：
+
+1. evidence_text: “每根立柱底部应设置垫板，垫板厚度不得小于50mm”
+    object_terms: [“立柱底部”, “垫板”]
+
+2. evidence_text: “支设上层支架时下层支架严禁拆除，且上层支架的立柱位置应与下层支架立柱位置对应”
+    object_terms: [“上层支架”, “下层支架”, “上层支架立柱”, “下层支架立柱”]
+
+3. evidence_text: “梁下立杆如有不对应情况，下层顶板立杆局部加设立杆，保证上下层立杆对应”
+    object_terms: [“梁下立杆”, “下层顶板立杆”, “上下层立杆”]
+
 
 输出格式必须严格为：
-{{
-  "evidence_text": "",
-  "object_terms": [],
-  "source_text": "",
-  "confidence": 0.0
-}}
+{
+"evidence_points": [
+{
+"evidence_text": "",
+"object_terms": [],
+"confidence": 0.0
+}
+]
+}
 
 章节标题：
 {title}
@@ -362,15 +401,36 @@ class ChapterProfileService:
         page: int = 1,
         page_size: int = 100,
     ) -> tuple[list[ChapterReviewProfile], int]:
-        self.get_generation_job(db, job_id)
+        job = self.get_generation_job(db, job_id)
+        section_ids = [
+            section_id
+            for (section_id,) in (
+                db.query(ChapterProfileGenerationItem.section_id)
+                .filter(
+                    ChapterProfileGenerationItem.job_id == job_id,
+                    ChapterProfileGenerationItem.section_id.isnot(None),
+                )
+                .all()
+            )
+            if section_id is not None
+        ]
+        if not section_ids:
+            return [], 0
         query = (
             db.query(ChapterReviewProfile)
-            .join(ChapterProfileGenerationItem, ChapterProfileGenerationItem.profile_id == ChapterReviewProfile.id)
-            .filter(ChapterProfileGenerationItem.job_id == job_id)
+            .filter(
+                ChapterReviewProfile.document_id == job.document_id,
+                ChapterReviewProfile.section_id.in_(section_ids),
+                ChapterReviewProfile.status == "active",
+            )
         )
+        if job.task_id is None:
+            query = query.filter(ChapterReviewProfile.task_id.is_(None))
+        else:
+            query = query.filter(ChapterReviewProfile.task_id == job.task_id)
         total = query.count()
         items = (
-            query.order_by(ChapterProfileGenerationItem.id.asc())
+            query.order_by(ChapterReviewProfile.section_id.asc(), ChapterReviewProfile.id.asc())
             .offset((page - 1) * page_size)
             .limit(page_size)
             .all()
@@ -509,7 +569,7 @@ class ChapterProfileService:
                     .all()
                 )
             }
-            profile, created, llm_failed = await self._upsert_profile_for_section(
+            profiles, created_count, updated_count, llm_failed = await self._upsert_profiles_for_section(
                 db,
                 section=plan_section,
                 section_map=section_map,
@@ -531,11 +591,13 @@ class ChapterProfileService:
                 db.commit()
                 return
             item.status = "rule_only" if llm_failed else "success"
-            item.profile_id = profile.id
+            item.profile_id = profiles[0].id if profiles else None
             item.used_llm = not llm_failed
-            item.confidence = profile.confidence
-            action = "created" if created else "updated"
-            item.message = f"Profile {action}; LLM failed, rule-only profile saved." if llm_failed else f"Profile {action}."
+            item.confidence = _average_confidence(profiles)
+            if llm_failed:
+                item.message = f"Profiles created={created_count}, updated={updated_count}; LLM failed, rule-only profile saved."
+            else:
+                item.message = f"Profiles created={created_count}, updated={updated_count}."
             item.finished_at = datetime.utcnow()
             item.updated_at = datetime.utcnow()
             self._refresh_generation_job_summary(db, job)
@@ -579,20 +641,18 @@ class ChapterProfileService:
 
         for section in sections_to_profile:
             try:
-                profile, created, llm_failed = await self._upsert_profile_for_section(
+                profiles, section_created_count, section_updated_count, llm_failed = await self._upsert_profiles_for_section(
                     db,
                     section=section,
                     section_map=section_map,
                     document_id=document_id,
                     task_id=task_id,
                 )
-                if created:
-                    created_count += 1
-                else:
-                    updated_count += 1
+                created_count += section_created_count
+                updated_count += section_updated_count
                 if llm_failed:
                     failed.append({"section_id": section.id, "reason": "LLM failed; rule-only profile saved."})
-                saved.append(profile)
+                saved.extend(profiles)
             except Exception as exc:
                 failed.append({"section_id": section.id, "reason": str(exc)})
         db.commit()
@@ -607,7 +667,7 @@ class ChapterProfileService:
             "items": saved,
         }
 
-    async def _upsert_profile_for_section(
+    async def _upsert_profiles_for_section(
         self,
         db: Session,
         *,
@@ -616,7 +676,7 @@ class ChapterProfileService:
         document_id: int,
         task_id: int | None,
         job_id: int | None = None,
-    ) -> tuple[ChapterReviewProfile, bool, bool]:
+    ) -> tuple[list[ChapterReviewProfile], int, int, bool]:
         text = f"{section.title}\n{section.content or ''}"
         objects = recognize_construction_objects(db, text)
         object_terms = _object_terms(objects)
@@ -628,6 +688,11 @@ class ChapterProfileService:
         except Exception:
             llm_failed = True
 
+        chapter_path = _build_chapter_path(section, section_map)
+        evidence_points = _evidence_points_from_ai_data(ai_data)
+        if llm_failed:
+            evidence_points = [_fallback_evidence_point(section)]
+
         query = db.query(ChapterReviewProfile).filter(
             ChapterReviewProfile.document_id == document_id,
             ChapterReviewProfile.section_id == section.id,
@@ -636,32 +701,50 @@ class ChapterProfileService:
             query = query.filter(ChapterReviewProfile.task_id.is_(None))
         else:
             query = query.filter(ChapterReviewProfile.task_id == task_id)
-        existing = query.first()
-        chapter_path = _build_chapter_path(section, section_map)
-        evidence_text = _as_string(ai_data.get("evidence_text")) or _fallback_evidence_text(section)
-        values = {
-            "evidence_code": _default_evidence_code(section),
-            "evidence_text": evidence_text,
-            "object_terms": _merge_lists(object_terms, _as_list(ai_data.get("object_terms"))),
-            "task_id": task_id,
-            "document_id": document_id,
-            "section_id": section.id,
-            "chapter_title": section.title,
-            "chapter_path": chapter_path,
-            "source_text": _as_string(ai_data.get("source_text")) or _fallback_source_text(section),
-            "confidence": _as_confidence(ai_data.get("confidence"), default=0.0),
-            "status": "active",
-            "updated_at": datetime.utcnow(),
-        }
-        if existing:
-            for key, value in values.items():
-                setattr(existing, key, value)
+
+        existing_rows = query.order_by(ChapterReviewProfile.id.asc()).all()
+        existing_by_text = {row.evidence_text: row for row in existing_rows}
+        active_rows: list[ChapterReviewProfile] = []
+        used_ids: set[int] = set()
+        created_count = 0
+        updated_count = 0
+        now = datetime.utcnow()
+
+        for index, point in enumerate(evidence_points, start=1):
+            evidence_text = point["evidence_text"]
+            row = existing_by_text.get(evidence_text)
+            values = {
+                "evidence_code": _default_evidence_code(section, index=index),
+                "evidence_text": evidence_text,
+                "object_terms": _merge_lists(object_terms, point.get("object_terms")),
+                "task_id": task_id,
+                "document_id": document_id,
+                "section_id": section.id,
+                "chapter_title": section.title,
+                "chapter_path": chapter_path,
+                "source_text": _source_text_for_evidence(section, evidence_text),
+                "confidence": point["confidence"],
+                "status": "active",
+                "updated_at": now,
+            }
+            if row:
+                for key, value in values.items():
+                    setattr(row, key, value)
+                updated_count += 1
+            else:
+                row = ChapterReviewProfile(**values)
+                db.add(row)
+                created_count += 1
             db.flush()
-            return existing, False, llm_failed
-        row = ChapterReviewProfile(**values)
-        db.add(row)
+            active_rows.append(row)
+            used_ids.add(row.id)
+
+        for row in existing_rows:
+            if row.id not in used_ids and row.status == "active":
+                row.status = "inactive"
+                row.updated_at = now
         db.flush()
-        return row, True, llm_failed
+        return active_rows, created_count, updated_count, llm_failed
 
     def _ensure_construction_plan_document(self, db: Session, document_id: int) -> PlanDocument:
         document = db.query(PlanDocument).filter(PlanDocument.id == document_id).first()
@@ -674,8 +757,8 @@ class ChapterProfileService:
     def _refresh_generation_job_summary(self, db: Session, job: ChapterProfileGenerationJob) -> None:
         items = db.query(ChapterProfileGenerationItem).filter(ChapterProfileGenerationItem.job_id == job.id).all()
         job.processed_sections = sum(1 for item in items if item.status in PROCESSED_GENERATION_ITEM_STATUSES)
-        job.created_count = sum(1 for item in items if item.status in {"success", "rule_only"} and item.profile_id and "created" in (item.message or ""))
-        job.updated_count = sum(1 for item in items if item.status in {"success", "rule_only"} and item.profile_id and "updated" in (item.message or ""))
+        job.created_count = sum(_message_count(item.message, "created") for item in items if item.status in {"success", "rule_only"})
+        job.updated_count = sum(_message_count(item.message, "updated") for item in items if item.status in {"success", "rule_only"})
         job.failed_count = sum(1 for item in items if item.status == "failed")
         job.rule_only_count = sum(1 for item in items if item.status == "rule_only")
         job.updated_at = datetime.utcnow()
@@ -691,10 +774,7 @@ class ChapterProfileService:
         if not content.strip():
             return {}
         model_service = ModelService()
-        prompt = PROFILE_EXTRACTION_PROMPT.format(
-            title=section.title or "",
-            content=content,
-        )
+        prompt = PROFILE_EXTRACTION_PROMPT.replace("{title}", section.title or "").replace("{content}", content)
         payload = {
             "model": model_service.default_model,
             "messages": [
@@ -764,6 +844,14 @@ def _object_terms(objects: list[dict[str, Any]]) -> list[str]:
     return _merge_lists(values)
 
 
+def _fallback_evidence_point(section: PlanSection) -> dict[str, Any]:
+    return {
+        "evidence_text": _fallback_evidence_text(section),
+        "object_terms": [],
+        "confidence": 0.0,
+    }
+
+
 def _fallback_evidence_text(section: PlanSection) -> str:
     content = (section.content or "").strip()
     if not content:
@@ -777,9 +865,102 @@ def _fallback_source_text(section: PlanSection) -> str:
     return content[:1000] if content else (section.title or "")
 
 
-def _default_evidence_code(section: PlanSection) -> str:
+def _source_text_for_evidence(section: PlanSection, evidence_text: str) -> str:
+    content = (section.content or "").strip()
+    evidence = evidence_text.strip()
+    if not content or not evidence:
+        return _fallback_source_text(section)
+
+    for segment in _iter_source_segments(content):
+        if evidence in segment:
+            return segment[:1000]
+
+    normalized_evidence = _normalize_text_for_match(evidence)
+    if normalized_evidence:
+        for segment in _iter_source_segments(content):
+            if normalized_evidence in _normalize_text_for_match(segment):
+                return segment[:1000]
+
+    return _fallback_source_text(section)
+
+
+def _iter_source_segments(content: str) -> list[str]:
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n+", content) if part.strip()]
+    line_segments = [line.strip() for line in content.splitlines() if line.strip()]
+    sentence_segments = _split_source_sentences(content)
+    return _merge_lists(sentence_segments, line_segments, paragraphs)
+
+
+def _split_source_sentences(content: str) -> list[str]:
+    sentences: list[str] = []
+    start = 0
+    for index, char in enumerate(content):
+        if char == ".":
+            previous_char = content[index - 1] if index > 0 else ""
+            next_char = content[index + 1] if index + 1 < len(content) else ""
+            if previous_char.isdigit() and next_char.isdigit():
+                continue
+        elif char not in "。！？；!?;":
+            continue
+
+        sentence = content[start : index + 1].strip()
+        if sentence:
+            sentences.append(sentence)
+        start = index + 1
+
+    tail = content[start:].strip()
+    if tail:
+        sentences.append(tail)
+    return sentences
+
+
+def _normalize_text_for_match(value: str) -> str:
+    return re.sub(r"\s+", "", value)
+
+
+def _default_evidence_code(section: PlanSection, *, index: int = 1) -> str:
     section_no = re.sub(r"[^A-Za-z0-9]+", "-", section.section_no or str(section.id)).strip("-")
-    return f"E-{section_no or section.id}-001"
+    return f"E-{section_no or section.id}-{index:03d}"
+
+
+def _evidence_points_from_ai_data(ai_data: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_points = ai_data.get("evidence_points")
+    if raw_points is None and ai_data.get("evidence_text"):
+        raw_points = [ai_data]
+    if not isinstance(raw_points, list):
+        return []
+
+    points: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw_point in raw_points:
+        if not isinstance(raw_point, dict):
+            continue
+        evidence_text = _as_string(raw_point.get("evidence_text"))
+        if not evidence_text or evidence_text in seen:
+            continue
+        seen.add(evidence_text)
+        points.append(
+            {
+                "evidence_text": evidence_text,
+                "object_terms": _as_list(raw_point.get("object_terms")),
+                "confidence": _as_confidence(raw_point.get("confidence"), default=0.0),
+            }
+        )
+    return points
+
+
+def _average_confidence(profiles: list[ChapterReviewProfile]) -> float | None:
+    values = [float(profile.confidence) for profile in profiles if profile.confidence is not None]
+    if not values:
+        return None
+    return round(sum(values) / len(values), 2)
+
+
+def _message_count(message: str | None, key: str) -> int:
+    if not message:
+        return 0
+    match = re.search(rf"{re.escape(key)}=(\d+)", message)
+    return int(match.group(1)) if match else 0
 
 
 def _as_string(value: Any) -> str:
