@@ -600,7 +600,6 @@ const CheckpointTable = ({ checkpoints }: { checkpoints: ReviewCheckpoint[] }) =
     expandable={{
       expandedRowRender: (record) => (
         <Descriptions size="small" column={1}>
-          <Descriptions.Item label="Context">{record.context_text || "-"}</Descriptions.Item>
           <Descriptions.Item label="Clause">{record.clause_no || "-"}</Descriptions.Item>
           <Descriptions.Item label="Confidence">{record.confidence ?? "-"}</Descriptions.Item>
         </Descriptions>

@@ -15,7 +15,6 @@ class ChapterReviewProfileRead(BaseModel):
     section_id: int
     chapter_title: str | None
     chapter_path: str | None
-    context_text: str | None
     source_text: str | None
     confidence: float | None
     status: str

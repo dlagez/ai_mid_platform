@@ -36,7 +36,6 @@ type ProfileFormValues = {
   section_id?: string;
   chapter_title?: string | null;
   chapter_path?: string | null;
-  context_text?: string | null;
   source_text?: string | null;
   confidence?: string;
   status?: string;
@@ -445,9 +444,6 @@ const ProfileSummary = ({ profile }: { profile: ChapterReviewProfile }) => (
       <Descriptions.Item label="Objects" span={2}>
         <TagList values={profile.object_terms} />
       </Descriptions.Item>
-      <Descriptions.Item label="Context" span={2}>
-        {profile.context_text || "-"}
-      </Descriptions.Item>
       <Descriptions.Item label="Source" span={2}>
         {profile.source_text || "-"}
       </Descriptions.Item>
@@ -492,7 +488,6 @@ const CheckpointMatchTable = ({ matches }: { matches: CheckpointMatchWithCheckpo
           <Descriptions.Item label="Objects">
             <TagList values={record.checkpoint?.object_terms ?? []} />
           </Descriptions.Item>
-          <Descriptions.Item label="Context">{record.checkpoint?.context_text || "-"}</Descriptions.Item>
           <Descriptions.Item label="Clause">{record.checkpoint?.clause_text || "-"}</Descriptions.Item>
         </Descriptions>
       ),
@@ -533,9 +528,6 @@ const ProfileForm = ({
     </Form.Item>
     <Form.Item name="object_terms" label="对象词">
       <Select mode="tags" tokenSeparators={[",", "，"]} open={false} />
-    </Form.Item>
-    <Form.Item name="context_text" label="上下文">
-      <TextArea rows={4} />
     </Form.Item>
     <Form.Item name="source_text" label="原文片段">
       <TextArea rows={4} />
@@ -657,7 +649,6 @@ const filterProfiles = (profiles: ChapterReviewProfile[], query: ProfileFilterVa
           profile.object_terms.join(" "),
           profile.chapter_title,
           profile.chapter_path,
-          profile.context_text,
           profile.source_text,
         ].join(" "),
       );
@@ -677,7 +668,6 @@ const toProfileFormValues = (profile: ChapterReviewProfile): ProfileFormValues =
   section_id: String(profile.section_id),
   chapter_title: profile.chapter_title || "",
   chapter_path: profile.chapter_path || "",
-  context_text: profile.context_text,
   source_text: profile.source_text,
   confidence: profile.confidence == null ? "" : Number(profile.confidence).toFixed(2),
   status: profile.status,

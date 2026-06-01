@@ -161,7 +161,6 @@ export const ReviewCheckpointsPage = () => {
       clause_text: selectedClause?.content,
       rule_text: selectedClause?.content,
       object_terms: [],
-      context_text: selectedClause?.title,
       status: "active",
     });
     setCreateOpen(true);
@@ -550,7 +549,6 @@ const CheckpointTable = ({
     expandable={{
       expandedRowRender: (record) => (
         <Descriptions size="small" column={1}>
-          <Descriptions.Item label="Context">{record.context_text || "-"}</Descriptions.Item>
           <Descriptions.Item label="Clause">{record.clause_no || "-"}</Descriptions.Item>
           <Descriptions.Item label="Clause Text">{record.clause_text || "-"}</Descriptions.Item>
           <Descriptions.Item label="Confidence">{record.confidence ?? "-"}</Descriptions.Item>
@@ -595,9 +593,6 @@ const CheckpointForm = ({
     </Form.Item>
     <Form.Item name="object_terms" label="Object Terms">
       <Select mode="tags" tokenSeparators={[",", "，"]} open={false} />
-    </Form.Item>
-    <Form.Item name="context_text" label="Context Text">
-      <TextArea rows={3} />
     </Form.Item>
     <Form.Item name="confidence" label="Confidence">
       <InputNumber min={0} max={1} step={0.1} style={{ width: "100%" }} />

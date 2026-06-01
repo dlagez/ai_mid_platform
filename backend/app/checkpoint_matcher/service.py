@@ -135,8 +135,8 @@ class CheckpointMatcherService:
 def score_checkpoint(profile: ChapterReviewProfile, checkpoint: ReviewCheckpoint) -> tuple[float, dict[str, Any], str]:
     object_match = _list_match(profile.object_terms or [], checkpoint.object_terms or [])
     context_match = _list_match(
-        [profile.chapter_title or "", profile.chapter_path or "", profile.context_text or ""],
-        [checkpoint.context_text or "", checkpoint.clause_no or ""],
+        [profile.chapter_title or "", profile.chapter_path or ""],
+        [checkpoint.clause_no or ""],
     )
     semantic_similarity = _semantic_similarity(profile, checkpoint)
 
@@ -160,7 +160,6 @@ def _semantic_similarity(profile: ChapterReviewProfile, checkpoint: ReviewCheckp
         [
             profile.chapter_title or "",
             profile.chapter_path or "",
-            profile.context_text or "",
             profile.source_text or "",
             " ".join(profile.object_terms or []),
         ]
@@ -168,7 +167,6 @@ def _semantic_similarity(profile: ChapterReviewProfile, checkpoint: ReviewCheckp
     checkpoint_text = " ".join(
         [
             checkpoint.rule_text or "",
-            checkpoint.context_text or "",
             checkpoint.clause_text or "",
             " ".join(checkpoint.object_terms or []),
         ]

@@ -54,7 +54,6 @@ CHECKPOINT_PROMPT = """你是一名施工规范审查点抽取助手。
     {{
       "rule_text": "",
       "object_terms": [],
-      "context_text": "",
       "confidence": 0.8
     }}
   ]
@@ -85,7 +84,6 @@ class ReviewCheckpointService:
                     ReviewCheckpoint.rule_code.ilike(like),
                     ReviewCheckpoint.rule_text.ilike(like),
                     ReviewCheckpoint.clause_text.ilike(like),
-                    ReviewCheckpoint.context_text.ilike(like),
                     cast(ReviewCheckpoint.object_terms, String).ilike(like),
                 )
             )
@@ -129,7 +127,6 @@ class ReviewCheckpointService:
                     ReviewCheckpoint.rule_code.ilike(like),
                     ReviewCheckpoint.rule_text.ilike(like),
                     ReviewCheckpoint.clause_text.ilike(like),
-                    ReviewCheckpoint.context_text.ilike(like),
                     cast(ReviewCheckpoint.object_terms, String).ilike(like),
                 )
             )
@@ -548,7 +545,6 @@ class ReviewCheckpointService:
                 clause_id=clause.id,
                 clause_no=clause.clause_no,
                 clause_text=clause.content,
-                context_text=payload.get("context_text") or clause.title,
                 confidence=_as_confidence(payload.get("confidence"), default=0.0),
                 status="active",
             )
@@ -676,7 +672,6 @@ class ReviewCheckpointService:
                 {
                     "rule_text": content[:500],
                     "object_terms": objects,
-                    "context_text": title,
                     "confidence": 0.5,
                 }
             ]

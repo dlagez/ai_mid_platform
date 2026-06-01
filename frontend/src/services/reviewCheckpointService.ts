@@ -10,7 +10,6 @@ export type ReviewCheckpoint = {
   clause_id: number | null;
   clause_no: string | null;
   clause_text: string | null;
-  context_text: string | null;
   confidence: number | null;
   status: string;
   created_at: string;
@@ -25,7 +24,6 @@ export type ReviewCheckpointPayload = {
   clause_id?: number | null;
   clause_no?: string | null;
   clause_text?: string | null;
-  context_text?: string | null;
   confidence?: number | null;
   status?: string;
 };

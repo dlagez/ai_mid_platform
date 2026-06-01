@@ -38,15 +38,13 @@ PROFILE_EXTRACTION_PROMPT = """你是一名施工方案章节画像抽取助手�
 重要原则：
 1. evidence_text 必须是章节中可作为审查依据的最小方案证据点。
 2. object_terms 必须来自原文或标题中的对象词，例如“立柱”“扫地杆”“垫板”。
-3. context_text 表示父级条件/适用场景，可使用章节路径或标题语义。
-4. source_text 是 evidence_text 所在原始句子或段落。
-5. confidence 为 0-1 小数，表示抽取可信度。
+3. source_text 是 evidence_text 所在原始句子或段落。
+4. confidence 为 0-1 小数，表示抽取可信度。
 
 输出格式必须严格为：
 {{
   "evidence_text": "",
   "object_terms": [],
-  "context_text": "",
   "source_text": "",
   "confidence": 0.0
 }}
@@ -650,7 +648,6 @@ class ChapterProfileService:
             "section_id": section.id,
             "chapter_title": section.title,
             "chapter_path": chapter_path,
-            "context_text": _as_string(ai_data.get("context_text")) or chapter_path,
             "source_text": _as_string(ai_data.get("source_text")) or _fallback_source_text(section),
             "confidence": _as_confidence(ai_data.get("confidence"), default=0.0),
             "status": "active",

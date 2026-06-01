@@ -64,7 +64,6 @@ export type ChapterReviewProfile = {
   section_id: number;
   chapter_title: string | null;
   chapter_path: string | null;
-  context_text: string | null;
   source_text: string | null;
   confidence: number | null;
   status: string;

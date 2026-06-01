@@ -15,7 +15,6 @@ class ReviewCheckpointCreate(BaseModel):
     clause_id: int | None = None
     clause_no: str | None = None
     clause_text: str | None = None
-    context_text: str | None = None
     confidence: float | None = None
     status: str = "active"
 
@@ -28,7 +27,6 @@ class ReviewCheckpointUpdate(BaseModel):
     clause_id: int | None = None
     clause_no: str | None = None
     clause_text: str | None = None
-    context_text: str | None = None
     confidence: float | None = None
     status: str | None = None
 
@@ -42,7 +40,6 @@ class ReviewCheckpointRead(BaseModel):
     clause_id: int | None
     clause_no: str | None
     clause_text: str | None
-    context_text: str | None
     confidence: float | None
     status: str
     created_at: datetime
