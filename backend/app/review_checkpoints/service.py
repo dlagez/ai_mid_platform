@@ -28,14 +28,6 @@ from app.utils.exceptions import PlatformError
 from app.utils.langfuse import langfuse_observation, update_langfuse_observation
 
 
-CHECKPOINT_TYPES = {
-    "required_content",
-    "parameter_threshold",
-    "forbidden_content",
-    "procedure_required",
-    "semantic_check",
-    "cross_section_consistency",
-}
 CHECKPOINT_STATUSES = {"draft", "active", "disabled", "archived"}
 GENERATION_JOB_STATUSES = {"queued", "running", "success", "partial_success", "failed"}
 DEFAULT_GENERATION_CONCURRENCY = 5
@@ -47,7 +39,7 @@ CHECKPOINT_PROMPT = """你是一名施工规范审查点抽取助手。
 要求：
 1. 只能基于条文原文生成，不得编造。
 2. 审查点用于后续与施工方案章节画像匹配。
-3. 每个审查点必须包含 chapter_types、target_objects、target_parameters、check_goal、check_method。
+3. 每个审查点必须包含 rule_text、object_terms。
 4. 如果条文无法形成明确审查点，输出空数组。
 5. 只输出 JSON，不要输出 Markdown。
 
@@ -60,35 +52,13 @@ CHECKPOINT_PROMPT = """你是一名施工规范审查点抽取助手。
 {{
   "checkpoints": [
     {{
-      "checkpoint_name": "",
-      "checkpoint_type": "required_content",
-      "domain": "",
-      "subdomain": "",
-      "work_type": "",
-      "chapter_types": [],
-      "target_objects": [],
-      "target_parameters": [],
-      "keywords": [],
-      "check_goal": "",
-      "check_method": "",
-      "expected_items": [],
-      "forbidden_items": [],
-      "parameters": {{}},
-      "applicable_condition": {{}},
-      "risk_level": "major",
-      "is_mandatory": false,
-      "priority": 0
+      "rule_text": "",
+      "object_terms": [],
+      "context_text": "",
+      "confidence": 0.8
     }}
   ]
 }}
-
-checkpoint_type 只能从以下值中选择：
-- required_content
-- parameter_threshold
-- forbidden_content
-- procedure_required
-- semantic_check
-- cross_section_consistency
 """
 
 
@@ -99,9 +69,6 @@ class ReviewCheckpointService:
         *,
         standard_id: int | None = None,
         status: str | None = None,
-        checkpoint_type: str | None = None,
-        domain: str | None = None,
-        work_type: str | None = None,
         keyword: str | None = None,
         page: int = 1,
         page_size: int = 20,
@@ -111,25 +78,20 @@ class ReviewCheckpointService:
             query = query.filter(ReviewCheckpoint.standard_id == standard_id)
         if status:
             query = query.filter(ReviewCheckpoint.status == status)
-        if checkpoint_type:
-            query = query.filter(ReviewCheckpoint.checkpoint_type == checkpoint_type)
-        if domain:
-            query = query.filter(ReviewCheckpoint.domain == domain)
-        if work_type:
-            query = query.filter(or_(ReviewCheckpoint.work_type == work_type, ReviewCheckpoint.work_type.is_(None), ReviewCheckpoint.work_type == ""))
         if keyword:
             like = f"%{keyword}%"
             query = query.filter(
                 or_(
-                    ReviewCheckpoint.checkpoint_name.ilike(like),
-                    ReviewCheckpoint.check_goal.ilike(like),
+                    ReviewCheckpoint.rule_code.ilike(like),
+                    ReviewCheckpoint.rule_text.ilike(like),
                     ReviewCheckpoint.clause_text.ilike(like),
-                    cast(ReviewCheckpoint.keywords, String).ilike(like),
+                    ReviewCheckpoint.context_text.ilike(like),
+                    cast(ReviewCheckpoint.object_terms, String).ilike(like),
                 )
             )
         total = query.count()
         items = (
-            query.order_by(ReviewCheckpoint.priority.desc(), ReviewCheckpoint.created_at.desc(), ReviewCheckpoint.id.desc())
+            query.order_by(ReviewCheckpoint.created_at.desc(), ReviewCheckpoint.id.desc())
             .offset(max(page - 1, 0) * page_size)
             .limit(page_size)
             .all()
@@ -142,9 +104,6 @@ class ReviewCheckpointService:
         *,
         standard_id: int,
         status: str | None = None,
-        checkpoint_type: str | None = None,
-        domain: str | None = None,
-        work_type: str | None = None,
         keyword: str | None = None,
     ) -> tuple[StandardDocument, list[StandardClause], list[ReviewCheckpoint]]:
         standard = db.query(StandardDocument).filter(StandardDocument.id == standard_id).first()
@@ -163,26 +122,18 @@ class ReviewCheckpointService:
         )
         if status:
             query = query.filter(ReviewCheckpoint.status == status)
-        if checkpoint_type:
-            query = query.filter(ReviewCheckpoint.checkpoint_type == checkpoint_type)
-        if domain:
-            query = query.filter(ReviewCheckpoint.domain == domain)
-        if work_type:
-            query = query.filter(or_(ReviewCheckpoint.work_type == work_type, ReviewCheckpoint.work_type.is_(None), ReviewCheckpoint.work_type == ""))
         if keyword:
             like = f"%{keyword}%"
             query = query.filter(
                 or_(
-                    ReviewCheckpoint.checkpoint_name.ilike(like),
-                    ReviewCheckpoint.check_goal.ilike(like),
+                    ReviewCheckpoint.rule_code.ilike(like),
+                    ReviewCheckpoint.rule_text.ilike(like),
                     ReviewCheckpoint.clause_text.ilike(like),
-                    cast(ReviewCheckpoint.keywords, String).ilike(like),
+                    ReviewCheckpoint.context_text.ilike(like),
+                    cast(ReviewCheckpoint.object_terms, String).ilike(like),
                 )
             )
-        checkpoints = (
-            query.order_by(ReviewCheckpoint.clause_id.asc(), ReviewCheckpoint.priority.desc(), ReviewCheckpoint.id.asc())
-            .all()
-        )
+        checkpoints = query.order_by(ReviewCheckpoint.clause_id.asc(), ReviewCheckpoint.id.asc()).all()
         return standard, clauses, checkpoints
 
     def get_checkpoint(self, db: Session, checkpoint_id: int) -> ReviewCheckpoint:
@@ -192,7 +143,7 @@ class ReviewCheckpointService:
         return row
 
     def create_checkpoint(self, db: Session, data: ReviewCheckpointCreate) -> ReviewCheckpoint:
-        self._validate_values(data.checkpoint_type, data.status)
+        self._validate_values(data.status)
         row = ReviewCheckpoint(**data.model_dump())
         db.add(row)
         db.commit()
@@ -202,7 +153,7 @@ class ReviewCheckpointService:
     def update_checkpoint(self, db: Session, checkpoint_id: int, data: ReviewCheckpointUpdate) -> ReviewCheckpoint:
         row = self.get_checkpoint(db, checkpoint_id)
         values = data.model_dump(exclude_unset=True)
-        self._validate_values(values.get("checkpoint_type"), values.get("status"))
+        self._validate_values(values.get("status"))
         for key, value in values.items():
             setattr(row, key, value)
         row.updated_at = datetime.utcnow()
@@ -388,7 +339,7 @@ class ReviewCheckpointService:
         checkpoints = (
             db.query(ReviewCheckpoint)
             .filter(ReviewCheckpoint.id.in_(checkpoint_ids))
-            .order_by(ReviewCheckpoint.clause_id.asc(), ReviewCheckpoint.priority.desc(), ReviewCheckpoint.id.asc())
+            .order_by(ReviewCheckpoint.clause_id.asc(), ReviewCheckpoint.id.asc())
             .all()
             if checkpoint_ids
             else []
@@ -588,33 +539,17 @@ class ReviewCheckpointService:
 
         checkpoint_ids: list[int] = []
         for index, payload in enumerate(checkpoint_payloads, start=serial_offset):
-            checkpoint_type = payload.get("checkpoint_type") or "semantic_check"
-            if checkpoint_type not in CHECKPOINT_TYPES:
-                checkpoint_type = "semantic_check"
+            rule_text = (payload.get("rule_text") or self._default_name(clause)).strip()
             checkpoint = ReviewCheckpoint(
-                checkpoint_code=payload.get("checkpoint_code") or self._default_code(clause, index),
-                checkpoint_name=(payload.get("checkpoint_name") or self._default_name(clause))[:255],
-                checkpoint_type=checkpoint_type,
-                domain=payload.get("domain") or None,
-                subdomain=payload.get("subdomain") or None,
-                work_type=payload.get("work_type") or None,
+                rule_code=payload.get("rule_code") or self._default_code(clause, index),
+                rule_text=rule_text,
+                object_terms=_as_list(payload.get("object_terms")),
                 standard_id=clause.standard_id,
                 clause_id=clause.id,
                 clause_no=clause.clause_no,
                 clause_text=clause.content,
-                chapter_types=_as_list(payload.get("chapter_types")),
-                target_objects=_as_list(payload.get("target_objects")),
-                target_parameters=_as_list(payload.get("target_parameters")),
-                keywords=_as_list(payload.get("keywords")),
-                check_goal=payload.get("check_goal") or clause.content[:300],
-                check_method=payload.get("check_method") or checkpoint_type,
-                expected_items=_as_list(payload.get("expected_items")),
-                forbidden_items=_as_list(payload.get("forbidden_items")),
-                parameters=_as_dict(payload.get("parameters")),
-                applicable_condition=_as_dict(payload.get("applicable_condition")),
-                risk_level=payload.get("risk_level") or ("critical" if clause.is_mandatory else "major"),
-                is_mandatory=bool(payload.get("is_mandatory", clause.is_mandatory)),
-                priority=int(payload.get("priority") or (100 if clause.is_mandatory else 0)),
+                context_text=payload.get("context_text") or clause.title,
+                confidence=_as_confidence(payload.get("confidence"), default=0.0),
                 status="active",
             )
             db.add(checkpoint)
@@ -736,54 +671,13 @@ class ReviewCheckpointService:
         content = clause.content or ""
         title = clause.title or clause.clause_no or "规范条文"
         objects = _extract_objects(content + title)
-        parameters = _extract_parameter_names(content)
-        chapter_types = ["construction_technology"] if any(term in content + title for term in ("施工", "搭设", "拆除", "浇筑", "构造")) else []
-        if any(term in content for term in ("严禁", "不得", "禁止")):
+        if any(term in content for term in ("严禁", "不得", "禁止", "不应", "应", "应当", "必须")):
             return [
                 {
-                    "checkpoint_name": f"{title} 禁止性内容审查",
-                    "checkpoint_type": "forbidden_content",
-                    "chapter_types": chapter_types,
-                    "target_objects": objects,
-                    "target_parameters": parameters,
-                    "keywords": _keywords_from_text(content),
-                    "check_goal": "检查施工方案是否存在规范禁止的做法。",
-                    "check_method": "keyword",
-                    "forbidden_items": [term for term in ("严禁", "不得", "禁止") if term in content],
-                    "risk_level": "critical" if clause.is_mandatory else "major",
-                    "is_mandatory": clause.is_mandatory,
-                }
-            ]
-        if _extract_threshold(content):
-            return [
-                {
-                    "checkpoint_name": f"{title} 参数阈值审查",
-                    "checkpoint_type": "parameter_threshold",
-                    "chapter_types": chapter_types,
-                    "target_objects": objects,
-                    "target_parameters": parameters,
-                    "keywords": _keywords_from_text(content),
-                    "check_goal": "检查施工方案中的参数是否满足规范阈值。",
-                    "check_method": "parameter_threshold",
-                    "parameters": _extract_threshold(content),
-                    "risk_level": "major",
-                    "is_mandatory": clause.is_mandatory,
-                }
-            ]
-        if any(term in content for term in ("应", "应当", "必须")):
-            return [
-                {
-                    "checkpoint_name": f"{title} 必要内容审查",
-                    "checkpoint_type": "required_content",
-                    "chapter_types": chapter_types,
-                    "target_objects": objects,
-                    "target_parameters": parameters,
-                    "keywords": _keywords_from_text(content),
-                    "check_goal": "检查施工方案是否覆盖条文要求的关键内容。",
-                    "check_method": "keyword",
-                    "expected_items": _keywords_from_text(content)[:5],
-                    "risk_level": "critical" if clause.is_mandatory else "major",
-                    "is_mandatory": clause.is_mandatory,
+                    "rule_text": content[:500],
+                    "object_terms": objects,
+                    "context_text": title,
+                    "confidence": 0.5,
                 }
             ]
         return []
@@ -796,9 +690,7 @@ class ReviewCheckpointService:
     def _default_name(self, clause: StandardClause) -> str:
         return f"{clause.clause_no or clause.id} {clause.title or '规范审查点'}"
 
-    def _validate_values(self, checkpoint_type: str | None, status: str | None) -> None:
-        if checkpoint_type and checkpoint_type not in CHECKPOINT_TYPES:
-            raise PlatformError(f"Invalid checkpoint_type: {checkpoint_type}", status_code=400)
+    def _validate_values(self, status: str | None) -> None:
         if status and status not in CHECKPOINT_STATUSES:
             raise PlatformError(f"Invalid checkpoint status: {status}", status_code=400)
 
@@ -819,8 +711,13 @@ def _as_list(value: Any) -> list:
     return [str(value)]
 
 
-def _as_dict(value: Any) -> dict:
-    return value if isinstance(value, dict) else {}
+def _as_confidence(value: Any, *, default: float | None = None) -> float | None:
+    if value is None or value == "":
+        return default
+    try:
+        return max(0.0, min(float(value), 1.0))
+    except (TypeError, ValueError):
+        return default
 
 
 def _dedupe_ints(values: list[int]) -> list[int]:
@@ -855,40 +752,6 @@ def _extract_objects(text: str) -> list[str]:
     return [item for item in candidates if item in text]
 
 
-def _extract_parameter_names(text: str) -> list[str]:
-    candidates = ("立杆间距", "步距", "架体高度", "自由端高度", "承载力", "搭接长度", "浇筑速度", "分层厚度")
-    return [item for item in candidates if item in text]
-
-
-def _keywords_from_text(text: str) -> list[str]:
-    candidates = (
-        "盘扣",
-        "架体",
-        "基础",
-        "剪刀撑",
-        "立杆",
-        "水平杆",
-        "扫地杆",
-        "拆除",
-        "浇筑",
-        "验收",
-        "承载力",
-        "安全",
-    )
-    return [item for item in candidates if item in text]
-
-
-def _extract_threshold(text: str) -> dict[str, Any]:
-    match = re.search(r"(?:不应|不得|应|必须)?\s*(?P<operator><=|>=|<|>|不小于|不大于|大于|小于|不少于|不超过)?\s*(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>mm|毫米|m|米)", text)
-    if not match:
-        return {}
-    operator_map = {"不小于": ">=", "不少于": ">=", "大于": ">", "不大于": "<=", "不超过": "<=", "小于": "<"}
-    operator = operator_map.get(match.group("operator") or "", match.group("operator") or "<=")
-    return {
-        "operator": operator,
-        "threshold_value": match.group("value"),
-        "unit": match.group("unit"),
-    }
 
 
 def get_review_checkpoint_service() -> Generator[ReviewCheckpointService, None, None]:

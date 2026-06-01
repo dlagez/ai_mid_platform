@@ -25,30 +25,21 @@ const { TextArea } = Input;
 
 type ProfileFilterValues = {
   status?: string;
-  checkpoint_type?: string;
-  domain?: string;
-  work_type?: string;
   keyword?: string;
 };
 
 type ProfileFormValues = {
-  profile_code?: string;
+  evidence_code?: string | null;
+  evidence_text?: string;
+  object_terms?: string[];
   document_id?: string;
   section_id?: string;
   chapter_title?: string | null;
   chapter_path?: string | null;
-  chapter_type?: string | null;
-  main_domain?: string | null;
-  subdomains?: string[];
-  construction_objects?: string;
-  materials?: string[];
-  mentioned_parameters?: string;
-  mentioned_methods?: string[];
-  mentioned_risks?: string[];
-  mentioned_standards?: string[];
-  expected_missing_objects?: string[];
-  summary?: string | null;
+  context_text?: string | null;
+  source_text?: string | null;
   confidence?: string;
+  status?: string;
   created_at?: string;
   updated_at?: string;
 };
@@ -445,39 +436,20 @@ const SectionReviewPanel = ({
 );
 
 const ProfileSummary = ({ profile }: { profile: ChapterReviewProfile }) => (
-  <Card size="small" title={`PROFILE-${profile.id}`} className="chapter-profile-detail-card">
+  <Card size="small" title={profile.evidence_code || `PROFILE-${profile.id}`} className="chapter-profile-detail-card">
     <Descriptions size="small" column={2}>
-      <Descriptions.Item label="Chapter Type">{profile.chapter_type || "-"}</Descriptions.Item>
+      <Descriptions.Item label="Evidence" span={2}>{profile.evidence_text || "-"}</Descriptions.Item>
       <Descriptions.Item label="Confidence">
         <ConfidenceTag confidence={profile.confidence} />
       </Descriptions.Item>
-      <Descriptions.Item label="Domain">{profile.main_domain || "-"}</Descriptions.Item>
-      <Descriptions.Item label="Subdomains">
-        <TagList values={profile.subdomains} />
-      </Descriptions.Item>
       <Descriptions.Item label="Objects" span={2}>
-        <TagList values={getConstructionObjectTags(profile)} />
+        <TagList values={profile.object_terms} />
       </Descriptions.Item>
-      <Descriptions.Item label="Materials" span={2}>
-        <TagList values={profile.materials} />
+      <Descriptions.Item label="Context" span={2}>
+        {profile.context_text || "-"}
       </Descriptions.Item>
-      <Descriptions.Item label="Parameters" span={2}>
-        <TagList values={getParameterTags(profile)} />
-      </Descriptions.Item>
-      <Descriptions.Item label="Methods" span={2}>
-        <TagList values={profile.mentioned_methods} />
-      </Descriptions.Item>
-      <Descriptions.Item label="Risks" span={2}>
-        <TagList values={profile.mentioned_risks} />
-      </Descriptions.Item>
-      <Descriptions.Item label="Standards" span={2}>
-        <TagList values={profile.mentioned_standards} />
-      </Descriptions.Item>
-      <Descriptions.Item label="Expected Missing" span={2}>
-        <TagList values={profile.expected_missing_objects} />
-      </Descriptions.Item>
-      <Descriptions.Item label="Summary" span={2}>
-        {profile.summary || "-"}
+      <Descriptions.Item label="Source" span={2}>
+        {profile.source_text || "-"}
       </Descriptions.Item>
     </Descriptions>
   </Card>
@@ -491,19 +463,9 @@ const CheckpointMatchTable = ({ matches }: { matches: CheckpointMatchWithCheckpo
     pagination={{ pageSize: 8 }}
     columns={[
       {
-        title: "Checkpoint",
-        render: (_, record) => record.checkpoint?.checkpoint_name || `Checkpoint #${record.checkpoint_id}`,
+        title: "Rule",
+        render: (_, record) => record.checkpoint?.rule_text || `Checkpoint #${record.checkpoint_id}`,
         ellipsis: true,
-      },
-      {
-        title: "Type",
-        width: 180,
-        render: (_, record) => record.checkpoint?.checkpoint_type || "-",
-      },
-      {
-        title: "Risk",
-        width: 110,
-        render: (_, record) => <RiskTag risk={record.checkpoint?.risk_level} />,
       },
       {
         title: "Score",
@@ -527,13 +489,10 @@ const CheckpointMatchTable = ({ matches }: { matches: CheckpointMatchWithCheckpo
     expandable={{
       expandedRowRender: (record) => (
         <Descriptions size="small" column={1}>
-          <Descriptions.Item label="Targets">
-            <TagList values={record.checkpoint?.target_objects ?? []} />
+          <Descriptions.Item label="Objects">
+            <TagList values={record.checkpoint?.object_terms ?? []} />
           </Descriptions.Item>
-          <Descriptions.Item label="Parameters">
-            <TagList values={record.checkpoint?.target_parameters ?? []} />
-          </Descriptions.Item>
-          <Descriptions.Item label="Goal">{record.checkpoint?.check_goal || "-"}</Descriptions.Item>
+          <Descriptions.Item label="Context">{record.checkpoint?.context_text || "-"}</Descriptions.Item>
           <Descriptions.Item label="Clause">{record.checkpoint?.clause_text || "-"}</Descriptions.Item>
         </Descriptions>
       ),
@@ -548,7 +507,7 @@ const ProfileForm = ({
 }) => (
   <Form form={form} layout="vertical" disabled requiredMark={false}>
     <Space align="start" style={{ width: "100%" }} className="form-space-row">
-      <Form.Item name="profile_code" label="章节画像主键" style={{ flex: 1 }}>
+      <Form.Item name="evidence_code" label="证据编码" style={{ flex: 1 }}>
         <Input />
       </Form.Item>
       <Form.Item name="document_id" label="施工方案文档ID" style={{ flex: 1 }}>
@@ -562,9 +521,6 @@ const ProfileForm = ({
       <Form.Item name="chapter_title" label="章节标题" style={{ flex: 1 }}>
         <Input />
       </Form.Item>
-      <Form.Item name="chapter_type" label="章节类型" style={{ flex: 1 }}>
-        <Select options={chapterTypeOptions} />
-      </Form.Item>
       <Form.Item name="confidence" label="画像置信度" style={{ width: 150 }}>
         <Input />
       </Form.Item>
@@ -572,40 +528,16 @@ const ProfileForm = ({
     <Form.Item name="chapter_path" label="章节路径">
       <Input />
     </Form.Item>
-    <Space align="start" style={{ width: "100%" }} className="form-space-row">
-      <Form.Item name="main_domain" label="主专业领域" style={{ flex: 1 }}>
-        <Input />
-      </Form.Item>
-      <Form.Item name="subdomains" label="子领域列表" style={{ flex: 2 }}>
-        <Select mode="tags" tokenSeparators={[",", "，"]} open={false} />
-      </Form.Item>
-    </Space>
-    <Form.Item name="construction_objects" label="识别到的施工对象列表">
-      <TextArea rows={5} />
+    <Form.Item name="evidence_text" label="方案证据点">
+      <TextArea rows={3} />
     </Form.Item>
-    <Space align="start" style={{ width: "100%" }} className="form-space-row">
-      <Form.Item name="materials" label="识别到的材料列表" style={{ flex: 1 }}>
-        <Select mode="tags" tokenSeparators={[",", "，"]} open={false} />
-      </Form.Item>
-      <Form.Item name="mentioned_methods" label="识别到的施工方法列表" style={{ flex: 1 }}>
-        <Select mode="tags" tokenSeparators={[",", "，"]} open={false} />
-      </Form.Item>
-    </Space>
-    <Form.Item name="mentioned_parameters" label="识别到的参数列表">
-      <TextArea rows={5} />
-    </Form.Item>
-    <Space align="start" style={{ width: "100%" }} className="form-space-row">
-      <Form.Item name="mentioned_risks" label="识别到的风险点列表" style={{ flex: 1 }}>
-        <Select mode="tags" tokenSeparators={[",", "，"]} open={false} />
-      </Form.Item>
-      <Form.Item name="mentioned_standards" label="章节提到的规范标准列表" style={{ flex: 1 }}>
-        <Select mode="tags" tokenSeparators={[",", "，"]} open={false} />
-      </Form.Item>
-    </Space>
-    <Form.Item name="expected_missing_objects" label="按章节类型推断应出现但未出现的对象">
+    <Form.Item name="object_terms" label="对象词">
       <Select mode="tags" tokenSeparators={[",", "，"]} open={false} />
     </Form.Item>
-    <Form.Item name="summary" label="章节审查画像摘要">
+    <Form.Item name="context_text" label="上下文">
+      <TextArea rows={4} />
+    </Form.Item>
+    <Form.Item name="source_text" label="原文片段">
       <TextArea rows={4} />
     </Form.Item>
     <Space align="start" style={{ width: "100%" }} className="form-space-row">
@@ -694,60 +626,6 @@ const groupMatchesBySectionId = (matches: CheckpointMatchWithCheckpoint[]) => {
   return grouped;
 };
 
-const formatParameter = (value: ChapterReviewProfile["mentioned_parameters"][number]) => {
-  if (typeof value === "string") {
-    return value;
-  }
-  const name = String(value.name ?? "").trim();
-  const rawValue = String(value.value ?? "").trim();
-  const unit = String(value.unit ?? "").trim();
-  const sourceText = String(value.source_text ?? "").trim();
-  const parameter = [name, rawValue ? `${rawValue}${unit}` : ""].filter(Boolean).join("：");
-  return [parameter, sourceText ? `(${sourceText})` : ""].filter(Boolean).join(" ");
-};
-
-const getParameterTags = (profile: ChapterReviewProfile) =>
-  (profile.mentioned_parameters || []).map(formatParameter).filter(Boolean);
-
-const getConstructionObjectTags = (profile: ChapterReviewProfile) => {
-  const values: string[] = [];
-  for (const item of profile.construction_objects || []) {
-    const name = typeof item.object_name === "string" ? item.object_name : "";
-    if (name) {
-      values.push(name);
-    }
-    const matchedTerms = Array.isArray(item.matched_terms) ? item.matched_terms : [];
-    for (const term of matchedTerms) {
-      if (typeof term === "string") {
-        values.push(term);
-      }
-    }
-  }
-  return unique(values);
-};
-
-const getScenarioTerms = (profile: ChapterReviewProfile) =>
-  unique([...(profile.mentioned_methods || []), ...(profile.mentioned_risks || []), ...(profile.subdomains || [])]);
-
-const chapterTypeOptions = [
-  { value: "project_overview", label: "project_overview" },
-  { value: "basis", label: "basis" },
-  { value: "construction_plan", label: "construction_plan" },
-  { value: "construction_process", label: "construction_process" },
-  { value: "technical_parameters", label: "technical_parameters" },
-  { value: "quality_control", label: "quality_control" },
-  { value: "safety_measure", label: "safety_measure" },
-  { value: "emergency_plan", label: "emergency_plan" },
-  { value: "calculation", label: "calculation" },
-  { value: "acceptance", label: "acceptance" },
-  { value: "organization", label: "organization" },
-  { value: "other", label: "other" },
-  { value: "construction_deployment", label: "construction_deployment (legacy)" },
-  { value: "construction_technology", label: "construction_technology (legacy)" },
-  { value: "safety_control", label: "safety_control (legacy)" },
-  { value: "emergency", label: "emergency (legacy)" },
-];
-
 const profileStatusOptions = [
   { value: "high", label: "high" },
   { value: "medium", label: "medium" },
@@ -771,27 +649,16 @@ const filterProfiles = (profiles: ChapterReviewProfile[], query: ProfileFilterVa
     if (query.status && getProfileStatus(profile) !== query.status) {
       return false;
     }
-    if (query.checkpoint_type && profile.chapter_type !== query.checkpoint_type) {
-      return false;
-    }
-    if (query.domain && !normalizeText(profile.main_domain).includes(normalizeText(query.domain))) {
-      return false;
-    }
-    if (query.work_type && !normalizeText(profile.subdomains.join(" ")).includes(normalizeText(query.work_type))) {
-      return false;
-    }
     if (keyword) {
       const haystack = normalizeText(
         [
+          profile.evidence_code,
+          profile.evidence_text,
+          profile.object_terms.join(" "),
           profile.chapter_title,
           profile.chapter_path,
-          profile.summary,
-          profile.main_domain,
-          profile.subdomains.join(" "),
-          getConstructionObjectTags(profile).join(" "),
-          getParameterTags(profile).join(" "),
-          getScenarioTerms(profile).join(" "),
-          profile.expected_missing_objects.join(" "),
+          profile.context_text,
+          profile.source_text,
         ].join(" "),
       );
       if (!haystack.includes(keyword)) {
@@ -803,23 +670,17 @@ const filterProfiles = (profiles: ChapterReviewProfile[], query: ProfileFilterVa
 };
 
 const toProfileFormValues = (profile: ChapterReviewProfile): ProfileFormValues => ({
-  profile_code: `PROFILE-${profile.id}`,
+  evidence_code: profile.evidence_code,
+  evidence_text: profile.evidence_text,
+  object_terms: profile.object_terms,
   document_id: String(profile.document_id),
   section_id: String(profile.section_id),
   chapter_title: profile.chapter_title || "",
   chapter_path: profile.chapter_path || "",
-  chapter_type: profile.chapter_type,
-  main_domain: profile.main_domain,
-  subdomains: profile.subdomains,
-  construction_objects: formatJson(profile.construction_objects),
-  materials: profile.materials,
-  mentioned_parameters: formatJson(profile.mentioned_parameters),
-  mentioned_methods: profile.mentioned_methods,
-  mentioned_risks: profile.mentioned_risks,
-  mentioned_standards: profile.mentioned_standards,
-  expected_missing_objects: profile.expected_missing_objects,
-  summary: profile.summary,
+  context_text: profile.context_text,
+  source_text: profile.source_text,
   confidence: profile.confidence == null ? "" : Number(profile.confidence).toFixed(2),
+  status: profile.status,
   created_at: formatDate(profile.created_at),
   updated_at: formatDate(profile.updated_at),
 });

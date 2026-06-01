@@ -83,8 +83,9 @@ export const UtilsPPOcrPage = () => {
       const nextJobs = await listPPOcrPdfJobs();
       jobsRef.current = nextJobs;
       setJobs(nextJobs);
-      if (selectedDetailRef.current) {
-        const updated = nextJobs.find((job) => job.id === selectedDetailRef.current.job.id);
+      const selectedDetail = selectedDetailRef.current;
+      if (selectedDetail) {
+        const updated = nextJobs.find((job) => job.id === selectedDetail.job.id);
         if (updated) {
           const detail = await getPPOcrPdfJob(updated.id);
           selectedDetailRef.current = detail;

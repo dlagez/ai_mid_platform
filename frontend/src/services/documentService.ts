@@ -162,23 +162,18 @@ export type ChapterProfileParameter =
 
 export type ChapterReviewProfile = {
   id: number;
+  evidence_code: string | null;
+  evidence_text: string;
+  object_terms: string[];
   task_id: number | null;
   document_id: number;
   section_id: number;
   chapter_title: string | null;
   chapter_path: string | null;
-  chapter_type: string | null;
-  main_domain: string | null;
-  subdomains: string[];
-  construction_objects: Array<Record<string, unknown>>;
-  materials: string[];
-  mentioned_parameters: ChapterProfileParameter[];
-  mentioned_methods: string[];
-  mentioned_risks: string[];
-  mentioned_standards: string[];
-  expected_missing_objects: string[];
-  summary: string | null;
+  context_text: string | null;
+  source_text: string | null;
   confidence: number | null;
+  status: string;
   created_at: string;
   updated_at: string;
 };

@@ -51,16 +51,10 @@ const { TextArea } = Input;
 
 type CheckpointFilterValues = {
   status?: string;
-  checkpoint_type?: string;
-  domain?: string;
-  work_type?: string;
   keyword?: string;
 };
 
-type CheckpointFormValues = Omit<ReviewCheckpointPayload, "parameters" | "applicable_condition"> & {
-  parameters?: string;
-  applicable_condition?: string;
-};
+type CheckpointFormValues = ReviewCheckpointPayload;
 
 export const ReviewCheckpointsPage = () => {
   const { data: user } = useGetIdentity<CurrentUser>();
@@ -165,13 +159,10 @@ export const ReviewCheckpointsPage = () => {
       clause_id: selectedClause?.id,
       clause_no: selectedClause?.clause_no,
       clause_text: selectedClause?.content,
-      checkpoint_type: "required_content",
-      risk_level: "major",
+      rule_text: selectedClause?.content,
+      object_terms: [],
+      context_text: selectedClause?.title,
       status: "active",
-      priority: 0,
-      is_mandatory: false,
-      parameters: "{}",
-      applicable_condition: "{}",
     });
     setCreateOpen(true);
   };
@@ -205,8 +196,8 @@ export const ReviewCheckpointsPage = () => {
     }
     const values = await createForm.validateFields();
     const payload = normalizePayload(values);
-    if (!payload?.checkpoint_name || !payload.checkpoint_type) {
-      message.error("Checkpoint name and type are required.");
+    if (!payload?.rule_text) {
+      message.error("Rule text is required.");
       return;
     }
     setLoading((current) => ({ ...current, create: true }));
@@ -341,15 +332,6 @@ export const ReviewCheckpointsPage = () => {
           ) : null}
           <Form.Item name="status" label="Status">
             <Select allowClear style={{ width: 150 }} options={checkpointStatusOptions} />
-          </Form.Item>
-          <Form.Item name="checkpoint_type" label="Type">
-            <Select allowClear style={{ width: 210 }} options={checkpointTypeOptions} />
-          </Form.Item>
-          <Form.Item name="domain" label="Domain">
-            <Input allowClear />
-          </Form.Item>
-          <Form.Item name="work_type" label="Work Type">
-            <Input allowClear />
           </Form.Item>
           <Form.Item name="keyword" label="Keyword">
             <Input allowClear />
@@ -533,14 +515,12 @@ const CheckpointTable = ({
       className: `document-row${selectedCheckpointId === record.id ? " document-row-selected" : ""}`,
     })}
     columns={[
-      { title: "Code", dataIndex: "checkpoint_code", width: 130, ellipsis: true },
-      { title: "Checkpoint", dataIndex: "checkpoint_name", ellipsis: true },
-      { title: "Type", dataIndex: "checkpoint_type", width: 180 },
-      { title: "Risk", dataIndex: "risk_level", width: 100, render: (value: string) => <RiskTag risk={value} /> },
+      { title: "Code", dataIndex: "rule_code", width: 130, ellipsis: true },
+      { title: "Rule", dataIndex: "rule_text", ellipsis: true },
       { title: "Status", dataIndex: "status", width: 110, render: (value: string) => <StatusTag status={value} /> },
       {
-        title: "Targets",
-        dataIndex: "target_objects",
+        title: "Objects",
+        dataIndex: "object_terms",
         width: 180,
         render: (values: string[]) => <TagList values={values} />,
       },
@@ -570,20 +550,10 @@ const CheckpointTable = ({
     expandable={{
       expandedRowRender: (record) => (
         <Descriptions size="small" column={1}>
-          <Descriptions.Item label="Goal">{record.check_goal || "-"}</Descriptions.Item>
-          <Descriptions.Item label="Method">{record.check_method || "-"}</Descriptions.Item>
-          <Descriptions.Item label="Parameters">
-            <TagList values={record.target_parameters} />
-          </Descriptions.Item>
-          <Descriptions.Item label="Keywords">
-            <TagList values={record.keywords} />
-          </Descriptions.Item>
-          <Descriptions.Item label="Expected">
-            <TagList values={record.expected_items} />
-          </Descriptions.Item>
-          <Descriptions.Item label="Forbidden">
-            <TagList values={record.forbidden_items} />
-          </Descriptions.Item>
+          <Descriptions.Item label="Context">{record.context_text || "-"}</Descriptions.Item>
+          <Descriptions.Item label="Clause">{record.clause_no || "-"}</Descriptions.Item>
+          <Descriptions.Item label="Clause Text">{record.clause_text || "-"}</Descriptions.Item>
+          <Descriptions.Item label="Confidence">{record.confidence ?? "-"}</Descriptions.Item>
         </Descriptions>
       ),
     }}
@@ -599,30 +569,16 @@ const CheckpointForm = ({
 }) => (
   <Form form={form} layout="vertical" disabled={disabled} requiredMark={false}>
     <Space align="start" style={{ width: "100%" }} className="form-space-row">
-      <Form.Item name="checkpoint_code" label="Code" style={{ flex: 1 }}>
+      <Form.Item name="rule_code" label="Rule Code" style={{ flex: 1 }}>
         <Input />
-      </Form.Item>
-      <Form.Item name="checkpoint_type" label="Type" style={{ flex: 1 }} rules={[{ required: true }]}>
-        <Select options={checkpointTypeOptions} />
       </Form.Item>
       <Form.Item name="status" label="Status" style={{ width: 150 }}>
         <Select options={checkpointStatusOptions} />
       </Form.Item>
     </Space>
-    <Form.Item name="checkpoint_name" label="Checkpoint Name" rules={[{ required: true }]}>
-      <Input />
+    <Form.Item name="rule_text" label="Rule Text" rules={[{ required: true }]}>
+      <TextArea rows={3} />
     </Form.Item>
-    <Space align="start" style={{ width: "100%" }} className="form-space-row">
-      <Form.Item name="domain" label="Domain" style={{ flex: 1 }}>
-        <Input />
-      </Form.Item>
-      <Form.Item name="subdomain" label="Subdomain" style={{ flex: 1 }}>
-        <Input />
-      </Form.Item>
-      <Form.Item name="work_type" label="Work Type" style={{ flex: 1 }}>
-        <Input />
-      </Form.Item>
-    </Space>
     <Space align="start" style={{ width: "100%" }} className="form-space-row">
       <Form.Item name="standard_id" label="Standard ID" style={{ width: 140 }}>
         <InputNumber min={1} style={{ width: "100%" }} />
@@ -637,50 +593,14 @@ const CheckpointForm = ({
     <Form.Item name="clause_text" label="Clause Text">
       <TextArea rows={4} />
     </Form.Item>
-    <Space align="start" style={{ width: "100%" }} className="form-space-row">
-      <Form.Item name="chapter_types" label="Chapter Types" style={{ flex: 1 }}>
-        <Select mode="tags" tokenSeparators={[",", "，"]} options={chapterTypeOptions} />
-      </Form.Item>
-      <Form.Item name="target_objects" label="Target Objects" style={{ flex: 1 }}>
-        <Select mode="tags" tokenSeparators={[",", "，"]} open={false} />
-      </Form.Item>
-      <Form.Item name="target_parameters" label="Target Parameters" style={{ flex: 1 }}>
-        <Select mode="tags" tokenSeparators={[",", "，"]} open={false} />
-      </Form.Item>
-    </Space>
-    <Form.Item name="keywords" label="Keywords">
+    <Form.Item name="object_terms" label="Object Terms">
       <Select mode="tags" tokenSeparators={[",", "，"]} open={false} />
     </Form.Item>
-    <Form.Item name="check_goal" label="Check Goal">
+    <Form.Item name="context_text" label="Context Text">
       <TextArea rows={3} />
     </Form.Item>
-    <Form.Item name="check_method" label="Check Method">
-      <Input />
-    </Form.Item>
-    <Space align="start" style={{ width: "100%" }} className="form-space-row">
-      <Form.Item name="expected_items" label="Expected Items" style={{ flex: 1 }}>
-        <Select mode="tags" tokenSeparators={[",", "，"]} open={false} />
-      </Form.Item>
-      <Form.Item name="forbidden_items" label="Forbidden Items" style={{ flex: 1 }}>
-        <Select mode="tags" tokenSeparators={[",", "，"]} open={false} />
-      </Form.Item>
-    </Space>
-    <Space align="start" style={{ width: "100%" }} className="form-space-row">
-      <Form.Item name="risk_level" label="Risk Level" style={{ width: 150 }}>
-        <Select options={riskLevelOptions} />
-      </Form.Item>
-      <Form.Item name="priority" label="Priority" style={{ width: 140 }}>
-        <InputNumber style={{ width: "100%" }} />
-      </Form.Item>
-      <Form.Item name="is_mandatory" label="Mandatory" valuePropName="checked" style={{ width: 130 }}>
-        <Switch />
-      </Form.Item>
-    </Space>
-    <Form.Item name="parameters" label="Parameters JSON">
-      <TextArea rows={4} />
-    </Form.Item>
-    <Form.Item name="applicable_condition" label="Applicable Condition JSON">
-      <TextArea rows={4} />
+    <Form.Item name="confidence" label="Confidence">
+      <InputNumber min={0} max={1} step={0.1} style={{ width: "100%" }} />
     </Form.Item>
   </Form>
 );
@@ -815,18 +735,8 @@ const progressPercent = (job: CheckpointGenerationJob) => {
 
 const toFormValues = (checkpoint: ReviewCheckpoint): CheckpointFormValues => ({
   ...checkpoint,
-  parameters: JSON.stringify(checkpoint.parameters ?? {}, null, 2),
-  applicable_condition: JSON.stringify(checkpoint.applicable_condition ?? {}, null, 2),
 });
 
 const normalizePayload = (values: CheckpointFormValues): ReviewCheckpointPayload | null => {
-  try {
-    return {
-      ...values,
-      parameters: values.parameters ? JSON.parse(values.parameters) : {},
-      applicable_condition: values.applicable_condition ? JSON.parse(values.applicable_condition) : {},
-    };
-  } catch {
-    return null;
-  }
+  return values;
 };

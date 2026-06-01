@@ -34,9 +34,6 @@ async def list_review_checkpoints(
     db: Annotated[Session, Depends(get_db)],
     status: str | None = None,
     standard_id: int | None = None,
-    checkpoint_type: str | None = None,
-    domain: str | None = None,
-    work_type: str | None = None,
     keyword: str | None = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 20,
@@ -45,9 +42,6 @@ async def list_review_checkpoints(
         db,
         standard_id=standard_id,
         status=status,
-        checkpoint_type=checkpoint_type,
-        domain=domain,
-        work_type=work_type,
         keyword=keyword,
         page=page,
         page_size=page_size,
@@ -62,18 +56,12 @@ async def get_review_checkpoint_tree(
     db: Annotated[Session, Depends(get_db)],
     standard_id: Annotated[int, Query(ge=1)] = ...,
     status: str | None = None,
-    checkpoint_type: str | None = None,
-    domain: str | None = None,
-    work_type: str | None = None,
     keyword: str | None = None,
 ) -> ReviewCheckpointTreeResponse:
     standard, clauses, checkpoints = service.get_checkpoint_tree(
         db,
         standard_id=standard_id,
         status=status,
-        checkpoint_type=checkpoint_type,
-        domain=domain,
-        work_type=work_type,
         keyword=keyword,
     )
     return ReviewCheckpointTreeResponse(standard=standard, clauses=clauses, checkpoints=checkpoints)

@@ -587,14 +587,12 @@ const CheckpointTable = ({ checkpoints }: { checkpoints: ReviewCheckpoint[] }) =
     dataSource={checkpoints}
     pagination={{ pageSize: 8 }}
     columns={[
-      { title: "Code", dataIndex: "checkpoint_code", width: 130, ellipsis: true },
-      { title: "Checkpoint", dataIndex: "checkpoint_name", ellipsis: true },
-      { title: "Type", dataIndex: "checkpoint_type", width: 180 },
-      { title: "Risk", dataIndex: "risk_level", width: 100, render: (value: string) => <RiskTag risk={value} /> },
+      { title: "Code", dataIndex: "rule_code", width: 130, ellipsis: true },
+      { title: "Rule", dataIndex: "rule_text", ellipsis: true },
       { title: "Status", dataIndex: "status", width: 110, render: (value: string) => <Tag>{value}</Tag> },
       {
-        title: "Targets",
-        dataIndex: "target_objects",
+        title: "Objects",
+        dataIndex: "object_terms",
         width: 180,
         render: (values: string[]) => <TagList values={values} />,
       },
@@ -602,14 +600,9 @@ const CheckpointTable = ({ checkpoints }: { checkpoints: ReviewCheckpoint[] }) =
     expandable={{
       expandedRowRender: (record) => (
         <Descriptions size="small" column={1}>
-          <Descriptions.Item label="Goal">{record.check_goal || "-"}</Descriptions.Item>
-          <Descriptions.Item label="Method">{record.check_method || "-"}</Descriptions.Item>
-          <Descriptions.Item label="Parameters">
-            <TagList values={record.target_parameters} />
-          </Descriptions.Item>
-          <Descriptions.Item label="Keywords">
-            <TagList values={record.keywords} />
-          </Descriptions.Item>
+          <Descriptions.Item label="Context">{record.context_text || "-"}</Descriptions.Item>
+          <Descriptions.Item label="Clause">{record.clause_no || "-"}</Descriptions.Item>
+          <Descriptions.Item label="Confidence">{record.confidence ?? "-"}</Descriptions.Item>
         </Descriptions>
       ),
     }}

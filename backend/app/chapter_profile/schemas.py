@@ -7,23 +7,18 @@ from pydantic import BaseModel, ConfigDict
 
 class ChapterReviewProfileRead(BaseModel):
     id: int
+    evidence_code: str | None
+    evidence_text: str
+    object_terms: list
     task_id: int | None
     document_id: int
     section_id: int
     chapter_title: str | None
     chapter_path: str | None
-    chapter_type: str | None
-    main_domain: str | None
-    subdomains: list
-    construction_objects: list
-    materials: list
-    mentioned_parameters: list
-    mentioned_methods: list
-    mentioned_risks: list
-    mentioned_standards: list
-    expected_missing_objects: list
-    summary: str | None
+    context_text: str | None
+    source_text: str | None
     confidence: float | None
+    status: str
     created_at: datetime
     updated_at: datetime
 
