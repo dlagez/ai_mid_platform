@@ -33,31 +33,59 @@ GENERATION_JOB_STATUSES = {"queued", "running", "success", "partial_success", "f
 DEFAULT_GENERATION_CONCURRENCY = 5
 MAX_GENERATION_CONCURRENCY = 10
 
-CHECKPOINT_PROMPT = """你是一名施工规范审查点抽取助手。
-任务：将规范条文转换为施工方案审查点。一个条文可以生成多个审查点。
+CHECKPOINT_PROMPT = """你是一名施工规范最小审查点抽取助手。
 
-要求：
-1. 只能基于条文原文生成，不得编造。
-2. 审查点用于后续与施工方案章节画像匹配。
-3. 每个审查点必须包含 rule_text、object_terms。
-4. 如果条文无法形成明确审查点，输出空数组。
-5. 只输出 JSON，不要输出 Markdown。
+请基于规范条文标题和原文，抽取用于“施工方案证据点匹配”的最小规范审查点。
+
+只输出 JSON，不要输出 Markdown，不要添加解释性文字。
+
+重要原则：
+
+1. checkpoints 必须是数组。
+
+2. 一般情况下，规范的一小节就是描述一个审查点，应保持为一个 rule_text，不要过度拆分。
+
+3. 只有当条文文字很长，并且包含多个彼此独立的审查语义、不同对象、不同条件或不同参数约束时，才拆分为多个 rule_text。
+
+4. rule_text 必须来自规范原文，是可用于审查施工方案的最小规范审查点。
+
+5. 最小审查点不是越短越好，而是应满足“一个独立审查语义 + 必要上下文”。
+
+6. 如果多个短句属于同一审查对象、同一构造关系或同一参数约束，应合并为一个 rule_text，避免失去上下文。
+
+7. object_terms 必须来自条文标题或原文中的对象词，例如“立柱”“对接扣件”“对接接头”“主节点”“步距”等。
+
+8. object_terms 应尽量覆盖 rule_text 中的核心审查对象，不要加入原文没有出现且无法直接推断的对象。
+
+9. 不要判断施工方案是否符合规范，不要生成整改意见，只抽取规范中已经写明的审查点。
+
+10. confidence 为 0-1 小数，表示该审查点抽取可信度。
+
+11. 如果条文中没有可审查的具体要求、禁止项、条件项、参数或对象关系，则 checkpoints 输出空数组。
+
+合并示例：
+原文：
+“立柱接长严禁搭接，必须采用对接扣件连接，相邻两立柱的对接接头不得在同步内，且对接接头沿竖向错开的距离不宜小于 500mm，各接头中心距主节点不宜大于步距的 1/3。”
+
+应作为一个 rule_text，而不是拆成多个孤立点：
+rule_text: “立柱接长严禁搭接，必须采用对接扣件连接，相邻两立柱的对接接头不得在同步内，且对接接头沿竖向错开的距离不宜小于 500mm，各接头中心距主节点不宜大于步距的 1/3”
+object_terms: [“立柱”, “对接扣件”, “对接接头”, “主节点”, “步距”]
 
 规范名称：{standard_name}
 条文编号：{clause_no}
 条文标题：{clause_title}
 条文原文：{clause_content}
 
-输出格式：
-{{
-  "checkpoints": [
-    {{
-      "rule_text": "",
-      "object_terms": [],
-      "confidence": 0.8
-    }}
-  ]
-}}
+输出格式必须严格为：
+{
+"checkpoints": [
+{
+"rule_text": "",
+"object_terms": [],
+"confidence": 0.0
+}
+]
+}
 """
 
 
@@ -504,6 +532,7 @@ class ReviewCheckpointService:
                 )
                 if skipped_reason:
                     skipped.append({"clause_id": clause.id, "reason": skipped_reason})
+                    db.commit()
                     continue
                 checkpoint_ids.extend(ids)
             except Exception as exc:
@@ -530,28 +559,66 @@ class ReviewCheckpointService:
         serial_offset: int = 1,
     ) -> tuple[list[int], str | None]:
         extracted = await self._extract_checkpoints(standard, clause, use_llm=use_llm, job_id=job_id)
-        checkpoint_payloads = extracted if isinstance(extracted, list) else extracted.get("checkpoints", [])
+        checkpoint_payloads = _checkpoint_payloads_from_extracted(extracted)
         if not checkpoint_payloads:
+            self._archive_clause_checkpoints(db, clause)
             return [], "no checkpoint generated"
 
-        checkpoint_ids: list[int] = []
-        for index, payload in enumerate(checkpoint_payloads, start=serial_offset):
-            rule_text = (payload.get("rule_text") or self._default_name(clause)).strip()
-            checkpoint = ReviewCheckpoint(
-                rule_code=payload.get("rule_code") or self._default_code(clause, index),
-                rule_text=rule_text,
-                object_terms=_as_list(payload.get("object_terms")),
-                standard_id=clause.standard_id,
-                clause_id=clause.id,
-                clause_no=clause.clause_no,
-                clause_text=clause.content,
-                confidence=_as_confidence(payload.get("confidence"), default=0.0),
-                status="active",
+        existing_rows = (
+            db.query(ReviewCheckpoint)
+            .filter(
+                ReviewCheckpoint.standard_id == clause.standard_id,
+                ReviewCheckpoint.clause_id == clause.id,
+                ReviewCheckpoint.status != "archived",
             )
-            db.add(checkpoint)
+            .order_by(ReviewCheckpoint.id.asc())
+            .all()
+        )
+        existing_by_text = {row.rule_text: row for row in existing_rows}
+        checkpoint_ids: list[int] = []
+        used_ids: set[int] = set()
+        now = datetime.utcnow()
+        for index, payload in enumerate(checkpoint_payloads, start=1):
+            rule_text = payload["rule_text"]
+            checkpoint = existing_by_text.get(rule_text)
+            values = {
+                "rule_code": payload.get("rule_code") or self._default_code(clause, index),
+                "rule_text": rule_text,
+                "object_terms": payload["object_terms"],
+                "standard_id": clause.standard_id,
+                "clause_id": clause.id,
+                "clause_no": clause.clause_no,
+                "clause_text": clause.content,
+                "confidence": payload["confidence"],
+                "status": "active",
+                "updated_at": now,
+            }
+            if checkpoint:
+                for key, value in values.items():
+                    setattr(checkpoint, key, value)
+            else:
+                checkpoint = ReviewCheckpoint(**values)
+                db.add(checkpoint)
             db.flush()
             checkpoint_ids.append(checkpoint.id)
+            used_ids.add(checkpoint.id)
+        for checkpoint in existing_rows:
+            if checkpoint.id not in used_ids and checkpoint.status == "active":
+                checkpoint.status = "archived"
+                checkpoint.updated_at = now
+        db.flush()
         return checkpoint_ids, None
+
+    def _archive_clause_checkpoints(self, db: Session, clause: StandardClause) -> None:
+        (
+            db.query(ReviewCheckpoint)
+            .filter(
+                ReviewCheckpoint.standard_id == clause.standard_id,
+                ReviewCheckpoint.clause_id == clause.id,
+                ReviewCheckpoint.status == "active",
+            )
+            .update({"status": "archived", "updated_at": datetime.utcnow()}, synchronize_session=False)
+        )
 
     def _refresh_generation_job_summary(self, db: Session, job_id: int, *, finalize: bool = False) -> None:
         job = self.get_generation_job(db, job_id)
@@ -604,11 +671,11 @@ class ReviewCheckpointService:
         model_service = ModelService()
         clause_title = clause.title or ""
         clause_content = (clause.content or "").strip() or clause_title
-        prompt = CHECKPOINT_PROMPT.format(
-            standard_name=standard.standard_name if standard else "",
-            clause_no=clause.clause_no or "",
-            clause_title=clause_title,
-            clause_content=clause_content,
+        prompt = (
+            CHECKPOINT_PROMPT.replace("{standard_name}", standard.standard_name if standard else "")
+            .replace("{clause_no}", clause.clause_no or "")
+            .replace("{clause_title}", clause_title)
+            .replace("{clause_content}", clause_content)
         )
         payload = {
             "model": model_service.default_model,
@@ -713,6 +780,37 @@ def _as_confidence(value: Any, *, default: float | None = None) -> float | None:
         return max(0.0, min(float(value), 1.0))
     except (TypeError, ValueError):
         return default
+
+
+def _checkpoint_payloads_from_extracted(extracted: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
+    raw_checkpoints = extracted if isinstance(extracted, list) else extracted.get("checkpoints", [])
+    if not isinstance(raw_checkpoints, list):
+        return []
+
+    checkpoints: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw_checkpoint in raw_checkpoints:
+        if not isinstance(raw_checkpoint, dict):
+            continue
+        rule_text = _as_string(raw_checkpoint.get("rule_text"))
+        if not rule_text or rule_text in seen:
+            continue
+        seen.add(rule_text)
+        checkpoints.append(
+            {
+                "rule_code": _as_string(raw_checkpoint.get("rule_code")) or None,
+                "rule_text": rule_text,
+                "object_terms": _as_list(raw_checkpoint.get("object_terms")),
+                "confidence": _as_confidence(raw_checkpoint.get("confidence"), default=0.0),
+            }
+        )
+    return checkpoints
+
+
+def _as_string(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
 
 
 def _dedupe_ints(values: list[int]) -> list[int]:
