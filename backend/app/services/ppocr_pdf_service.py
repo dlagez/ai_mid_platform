@@ -20,6 +20,7 @@ from app.services.parse_result_section_service import (
     parse_result_sections_to_tree,
     rebuild_parse_result_sections,
 )
+from app.standards.service import StandardService
 from configs.settings import settings
 
 
@@ -184,6 +185,7 @@ class PPOcrPdfService:
             custom_patterns=custom_patterns,
             use_toc_outline=use_toc_outline,
         )
+        StandardService().sync_clauses_from_parse_result_for_document(db, job.result.id, sections)
         db.commit()
         return sections
 

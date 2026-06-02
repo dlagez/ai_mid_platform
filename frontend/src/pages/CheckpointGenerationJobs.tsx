@@ -95,9 +95,15 @@ export const CheckpointGenerationJobsPage = () => {
       const nextId = nextSelectedId && result.items.some((standard) => standard.id === nextSelectedId)
         ? nextSelectedId
         : result.items[0]?.id ?? null;
+      const standardChanged = nextId !== selectedStandardId;
       setSelectedStandardId(nextId);
       if (nextId) {
-        await loadStandardWorkspace(nextId, { standard_id: nextId, page: 1, page_size: jobQuery.page_size ?? 10 }, false);
+        await loadStandardWorkspace(
+          nextId,
+          { standard_id: nextId, page: 1, page_size: jobQuery.page_size ?? 10 },
+          false,
+          standardChanged,
+        );
       }
     } catch {
       message.error("Failed to load standards.");
@@ -110,6 +116,7 @@ export const CheckpointGenerationJobsPage = () => {
     standardId: number,
     nextJobQuery: CheckpointGenerationJobQuery = { ...jobQuery, standard_id: standardId },
     preserveJobSelection = true,
+    resetTreeExpansion = false,
   ) => {
     setLoading((current) => ({ ...current, workspace: true, jobs: true }));
     try {
@@ -119,7 +126,7 @@ export const CheckpointGenerationJobsPage = () => {
         listCheckpointGenerationJobs(nextJobQuery),
       ]);
       setStandardTree(tree);
-      setExpandedClauseKeys(getClauseKeys(tree.clauses));
+      setExpandedClauseKeys((current) => (resetTreeExpansion || !current.length ? getClauseKeys(tree.clauses) : current));
       setGenerationItems(itemResult);
       setJobs(jobResult.items);
       setJobTotal(jobResult.total);
@@ -129,11 +136,44 @@ export const CheckpointGenerationJobsPage = () => {
           ? selectedJobId
           : jobResult.items[0]?.id ?? null;
       setSelectedJobId(nextJobId);
-      setSelectedClauseId((current) => current ?? findFirstUnfinishedClauseId(tree.clauses, tree.checkpoints, itemResult) ?? tree.clauses[0]?.id ?? null);
+      setSelectedClauseId((current) =>
+        current && tree.clauses.some((clause) => clause.id === current)
+          ? current
+          : findFirstUnfinishedClauseId(tree.clauses, tree.checkpoints, itemResult) ?? tree.clauses[0]?.id ?? null,
+      );
     } catch {
       message.error("Failed to load checkpoint generation workspace.");
     } finally {
       setLoading((current) => ({ ...current, workspace: false, jobs: false }));
+    }
+  };
+
+  const loadGenerationProgress = async (
+    standardId: number,
+    nextJobQuery: CheckpointGenerationJobQuery = { ...jobQuery, standard_id: standardId },
+    nextSelectedJobId = selectedJobId,
+  ) => {
+    setLoading((current) => ({ ...current, jobs: true }));
+    try {
+      const [itemResult, jobResult] = await Promise.all([
+        listAllCheckpointGenerationItems(standardId),
+        listCheckpointGenerationJobs(nextJobQuery),
+      ]);
+      setGenerationItems(itemResult);
+      setJobs(jobResult.items);
+      setJobTotal(jobResult.total);
+      setJobQuery({ ...nextJobQuery, standard_id: standardId, page: jobResult.page, page_size: jobResult.page_size });
+      setSelectedJobId((current) =>
+        nextSelectedJobId && jobResult.items.some((job) => job.id === nextSelectedJobId)
+          ? nextSelectedJobId
+          : current && jobResult.items.some((job) => job.id === current)
+            ? current
+            : jobResult.items[0]?.id ?? null,
+      );
+    } catch {
+      message.error("Failed to load checkpoint generation progress.");
+    } finally {
+      setLoading((current) => ({ ...current, jobs: false }));
     }
   };
 
@@ -147,7 +187,7 @@ export const CheckpointGenerationJobsPage = () => {
     setSelectedRowKeys([]);
     setSelectedJobId(null);
     form.resetFields();
-    await loadStandardWorkspace(standardId, { standard_id: standardId, page: 1, page_size: jobQuery.page_size ?? 10 }, false);
+    await loadStandardWorkspace(standardId, { standard_id: standardId, page: 1, page_size: jobQuery.page_size ?? 10 }, false, true);
   };
 
   const applyFilter = async () => {
@@ -155,11 +195,12 @@ export const CheckpointGenerationJobsPage = () => {
       return;
     }
     const values = form.getFieldsValue();
-    await loadStandardWorkspace(
-      selectedStandardId,
-      { ...values, standard_id: selectedStandardId, page: 1, page_size: jobQuery.page_size ?? 10 },
-      false,
-    );
+    await loadGenerationProgress(selectedStandardId, {
+      ...values,
+      standard_id: selectedStandardId,
+      page: 1,
+      page_size: jobQuery.page_size ?? 10,
+    });
   };
 
   const refresh = async () => {
@@ -186,7 +227,7 @@ export const CheckpointGenerationJobsPage = () => {
       message.success(`Checkpoint generation job #${job.id} queued.`);
       setSelectedRowKeys([]);
       setSelectedJobId(job.id);
-      await loadStandardWorkspace(selectedStandardId, { ...jobQuery, standard_id: selectedStandardId, page: 1 }, false);
+      await loadGenerationProgress(selectedStandardId, { ...jobQuery, standard_id: selectedStandardId, page: 1 }, job.id);
     } catch {
       message.error("Failed to submit checkpoint generation job.");
     } finally {
@@ -364,7 +405,7 @@ export const CheckpointGenerationJobsPage = () => {
           }}
           onChange={(pagination: TablePaginationConfig) =>
             selectedStandardId
-              ? void loadStandardWorkspace(selectedStandardId, {
+              ? void loadGenerationProgress(selectedStandardId, {
                   ...jobQuery,
                   page: pagination.current ?? 1,
                   page_size: pagination.pageSize ?? 10,

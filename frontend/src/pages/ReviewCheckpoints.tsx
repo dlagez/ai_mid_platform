@@ -93,7 +93,12 @@ export const ReviewCheckpointsPage = () => {
     }
   };
 
-  const loadCheckpointTree = async (standardId = selectedStandardId, nextQuery = query, preserveSelection = true) => {
+  const loadCheckpointTree = async (
+    standardId = selectedStandardId,
+    nextQuery = query,
+    preserveSelection = true,
+    resetTreeExpansion = false,
+  ) => {
     if (!standardId) {
       setCheckpointTree(null);
       setSelectedClauseId(null);
@@ -104,7 +109,7 @@ export const ReviewCheckpointsPage = () => {
     try {
       const result = await getReviewCheckpointTree({ ...nextQuery, standard_id: standardId });
       setCheckpointTree(result);
-      setExpandedClauseKeys(getClauseKeys(result.clauses));
+      setExpandedClauseKeys((current) => (resetTreeExpansion || !current.length ? getClauseKeys(result.clauses) : current));
       setQuery(nextQuery);
       setSelectedClauseId((current) =>
         preserveSelection && current && result.clauses.some((clause) => clause.id === current)
@@ -138,13 +143,13 @@ export const ReviewCheckpointsPage = () => {
   const applyFilter = async () => {
     const values = filterForm.getFieldsValue();
     setSelectedClauseId(null);
-    await loadCheckpointTree(selectedStandardId, values, false);
+    await loadCheckpointTree(selectedStandardId, values, false, true);
   };
 
   const selectStandard = async (standardId: number) => {
     setSelectedStandardId(standardId);
     setSelectedClauseId(null);
-    await loadCheckpointTree(standardId, query, false);
+    await loadCheckpointTree(standardId, query, false, true);
   };
 
   const openEdit = (checkpoint: ReviewCheckpoint) => {

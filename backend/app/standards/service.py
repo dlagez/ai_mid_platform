@@ -100,32 +100,100 @@ class StandardService:
         db.add(standard)
         db.flush()
 
+        clause_count = self.sync_clauses_from_parse_result(db, standard, sections)
+
+        db.commit()
+        db.refresh(standard)
+        return standard, clause_count
+
+    def sync_clauses_from_parse_result(
+        self,
+        db: Session,
+        standard: StandardDocument,
+        sections: list[ParseResultSection] | None = None,
+    ) -> int:
+        if not standard.source_document_id:
+            return 0
+        if sections is None:
+            sections = (
+                db.query(ParseResultSection)
+                .filter(ParseResultSection.document_id == standard.source_document_id)
+                .order_by(ParseResultSection.sort_no.asc())
+                .all()
+            )
+        if not sections:
+            return 0
+
+        existing_clauses = (
+            db.query(StandardClause)
+            .filter(StandardClause.standard_id == standard.id)
+            .order_by(StandardClause.order_no.asc(), StandardClause.id.asc())
+            .all()
+        )
+        existing_by_source_id = {
+            clause.source_section_id: clause
+            for clause in existing_clauses
+            if clause.source_section_id is not None
+        }
+        existing_by_order_no = {clause.order_no: clause for clause in existing_clauses}
         section_map = {section.id: section for section in sections}
         clause_id_map: dict[int, int] = {}
         for section in sections:
             content = section.content or ""
-            clause = StandardClause(
-                standard_id=standard.id,
-                parent_id=clause_id_map.get(section.parent_id) if section.parent_id else None,
-                chapter_no=self._chapter_no(section.section_no),
-                clause_no=section.section_no,
-                title=section.title[:255] if section.title else None,
-                content=content,
-                level=section.title_level,
-                path=self._build_section_path(section, section_map),
-                is_mandatory=self._looks_mandatory(content),
-                keywords=[],
-                applicable_work_types=[],
-                source_section_id=section.id,
-                order_no=section.sort_no,
-            )
-            db.add(clause)
+            clause = existing_by_source_id.get(section.id) or existing_by_order_no.get(section.sort_no)
+            values = {
+                "standard_id": standard.id,
+                "parent_id": clause_id_map.get(section.parent_id) if section.parent_id else None,
+                "chapter_no": self._chapter_no(section.section_no),
+                "clause_no": section.section_no,
+                "title": section.title[:255] if section.title else None,
+                "content": content,
+                "level": section.title_level,
+                "path": self._build_section_path(section, section_map),
+                "is_mandatory": self._looks_mandatory(content),
+                "source_section_id": section.id,
+                "order_no": section.sort_no,
+            }
+            if clause:
+                for key, value in values.items():
+                    setattr(clause, key, value)
+            else:
+                clause = StandardClause(
+                    **values,
+                    keywords=[],
+                    applicable_work_types=[],
+                )
+                db.add(clause)
             db.flush()
             clause_id_map[section.id] = clause.id
 
-        db.commit()
-        db.refresh(standard)
-        return standard, len(sections)
+        active_source_ids = {section.id for section in sections}
+        for clause in existing_clauses:
+            if clause.source_section_id not in active_source_ids and clause.order_no not in {section.sort_no for section in sections}:
+                db.delete(clause)
+        db.flush()
+        return len(sections)
+
+    def sync_clauses_from_parse_result_for_document(
+        self,
+        db: Session,
+        parse_result_id: int,
+        sections: list[ParseResultSection] | None = None,
+    ) -> int:
+        standards = (
+            db.query(StandardDocument)
+            .filter(
+                StandardDocument.source_document_id == parse_result_id,
+                StandardDocument.status != "archived",
+            )
+            .order_by(StandardDocument.id.asc())
+            .all()
+        )
+        synced = 0
+        for standard in standards:
+            self.sync_clauses_from_parse_result(db, standard, sections)
+            synced += 1
+        return synced
 
     def list_clauses(
         self,
