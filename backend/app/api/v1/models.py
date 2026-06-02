@@ -11,6 +11,7 @@ from app.db.session import get_db
 from app.review_checkpoints.service import CHECKPOINT_PROMPT
 from app.services.model_service import ModelService, get_model_service
 from app.utils.jwt import CurrentUser, require_permission
+from app.utils.langfuse import langfuse_observation, update_langfuse_observation
 
 router = APIRouter()
 
@@ -124,15 +125,55 @@ async def test_prompt(
     db.commit()
     db.refresh(record)
 
+    call_payload = {
+        "model": requested_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": payload.temperature,
+        "max_tokens": max_tokens,
+    }
+    metadata = {
+        "operation": "model.prompt_test",
+        "record_id": record.id,
+        "prompt_type": payload.prompt_type,
+        "requested_model": requested_model,
+        "temperature": payload.temperature,
+        "max_tokens": max_tokens,
+        "input_chars": len(text),
+        "prompt_chars": len(prompt),
+        "created_by": user.username,
+    }
     try:
-        result = await service.call_model(
-            {
-                "model": requested_model,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": payload.temperature,
-                "max_tokens": max_tokens,
-            }
-        )
+        with langfuse_observation(
+            name="model.prompt_test",
+            input_data={"messages": call_payload["messages"]},
+            metadata=metadata,
+            user_id=user.username,
+            session_id=f"prompt-test:{user.username}",
+            tags=["prompt_test", payload.prompt_type, "llm"],
+            as_type="generation",
+            model=requested_model,
+        ) as observation:
+            try:
+                result = await service.call_model(call_payload)
+            except Exception as exc:
+                update_langfuse_observation(
+                    observation,
+                    output={"error": str(exc)},
+                    metadata=metadata | {"status": "failed", "error_message": str(exc)},
+                )
+                raise
+            output_content = ((result.get("output") or {}).get("content") or "").strip()
+            update_langfuse_observation(
+                observation,
+                output={"content": output_content, "raw": result.get("output")},
+                metadata=metadata
+                | {
+                    "provider": result.get("provider"),
+                    "model": result.get("model"),
+                    "output_chars": len(output_content),
+                    "status": "success",
+                },
+            )
     except Exception as exc:
         record.status = "failed"
         record.error_message = str(exc)

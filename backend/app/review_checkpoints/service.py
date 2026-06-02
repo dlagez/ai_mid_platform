@@ -39,10 +39,15 @@ CHECKPOINT_PROMPT = """你是一名施工规范最小审查点抽取助手。
 
 只输出 JSON，不要输出 Markdown，不要添加解释性文字。
 
+规范名称：{standard_name}
+条文编号：{clause_no}
+条文标题：{clause_title}
+条文原文：{clause_content}
+
+
 重要原则：
 
 1. checkpoints 必须是数组。
-
 2. 一般情况下，规范的一小节就是描述一个审查点，应保持为一个 rule_text，不要过度拆分。
 
 3. 只有当条文文字很长，并且包含多个彼此独立的审查语义、不同对象、不同条件或不同参数约束时，才拆分为多个 rule_text。
@@ -71,10 +76,6 @@ CHECKPOINT_PROMPT = """你是一名施工规范最小审查点抽取助手。
 rule_text: “立柱接长严禁搭接，必须采用对接扣件连接，相邻两立柱的对接接头不得在同步内，且对接接头沿竖向错开的距离不宜小于 500mm，各接头中心距主节点不宜大于步距的 1/3”
 object_terms: [“立柱”, “对接扣件”, “对接接头”, “主节点”, “步距”]
 
-规范名称：{standard_name}
-条文编号：{clause_no}
-条文标题：{clause_title}
-条文原文：{clause_content}
 
 输出格式必须严格为：
 {
