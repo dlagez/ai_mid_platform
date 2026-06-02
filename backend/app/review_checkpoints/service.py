@@ -422,6 +422,7 @@ class ReviewCheckpointService:
             db.commit()
             raise
 
+        db.expire_all()
         self._refresh_generation_job_summary(db, job_id_value, finalize=True)
         job = self.get_generation_job(db, job_id_value)
         return {"job_id": job.id, "status": job.status, "created_count": job.created_count}
@@ -602,6 +603,7 @@ class ReviewCheckpointService:
         )
 
     def _refresh_generation_job_summary(self, db: Session, job_id: int, *, finalize: bool = False) -> None:
+        db.expire_all()
         job = self.get_generation_job(db, job_id)
         items = db.query(ReviewCheckpointGenerationItem).filter(ReviewCheckpointGenerationItem.job_id == job.id).all()
         created_ids: list[int] = []
@@ -629,8 +631,10 @@ class ReviewCheckpointService:
             job.finished_at = datetime.utcnow()
             if job.created_count > 0 and job.failed_count == 0:
                 job.status = "success"
+                job.error_message = None
             elif job.created_count > 0:
                 job.status = "partial_success"
+                job.error_message = None
             else:
                 job.status = "failed"
                 job.error_message = "No checkpoint generated."
