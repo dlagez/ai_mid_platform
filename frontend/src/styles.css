@@ -52,9 +52,18 @@ body {
 }
 
 .model-output {
+  display: block;
   min-height: 180px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.prompt-test-results {
+  width: 100%;
+}
+
+.full-width-input {
+  width: 100%;
 }
 
 .openkb-output {

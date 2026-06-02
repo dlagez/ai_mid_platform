@@ -17,6 +17,25 @@ class TaskRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class ModelPromptTestRecord(Base):
+    __tablename__ = "model_prompt_test_record"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    prompt_type: Mapped[str] = mapped_column(String(64), index=True)
+    model: Mapped[str] = mapped_column(String(128), index=True)
+    provider: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    temperature: Mapped[float] = mapped_column(Float, default=0.1)
+    max_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    input_text: Mapped[str] = mapped_column(Text)
+    rendered_prompt: Mapped[str] = mapped_column(Text)
+    output: Mapped[dict | list | str | None] = mapped_column(JSONB, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="running", index=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class DocumentRecord(Base):
     __tablename__ = "document_records"
 

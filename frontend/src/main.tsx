@@ -20,6 +20,7 @@ import {
   ApiOutlined,
   AppstoreOutlined,
   BookOutlined,
+  ExperimentOutlined,
   FileDoneOutlined,
   DashboardOutlined,
   DatabaseOutlined,
@@ -38,6 +39,7 @@ import { AppHeader } from "./components/AppHeader";
 import { DashboardPage } from "./pages/Dashboard";
 import { LoginPage } from "./pages/LoginPage";
 import { ModelCallPage } from "./pages/ModelCall";
+import { PromptTestPage } from "./pages/PromptTest";
 import { OpenKBPage } from "./pages/OpenKB";
 import { TaskListPage } from "./pages/TaskList";
 import { ConstructionPlanReviewPage, TemplateUploadPage } from "./pages/ConstructionPlanReview";
@@ -67,6 +69,11 @@ const resources = [
     name: "models",
     list: "/models",
     meta: { label: "Model Calls", icon: <RobotOutlined /> },
+  },
+  {
+    name: "prompt-test",
+    list: "/prompt-test",
+    meta: { label: "Prompt Test", icon: <ExperimentOutlined /> },
   },
   {
     name: "openkb",
@@ -169,6 +176,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                 <Route index element={<DashboardPage />} />
                 <Route path="/tasks" element={<TaskListPage />} />
                 <Route path="/models" element={<ModelCallPage />} />
+                <Route path="/prompt-test" element={<PromptTestPage />} />
                 <Route path="/openkb" element={<OpenKBPage />} />
                 <Route path="/upload-templates" element={<TemplateUploadPage />} />
                 <Route path="/construction-plan" element={<ConstructionPlanReviewPage />} />
