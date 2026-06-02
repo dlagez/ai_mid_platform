@@ -34,6 +34,7 @@ class PlanSectionSummaryRead(BaseModel):
     level: int
     title: str
     section_no: str | None = None
+    content: str = ""
 
     model_config = ConfigDict(from_attributes=True)
 

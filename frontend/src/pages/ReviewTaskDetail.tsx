@@ -302,44 +302,119 @@ const MatchDetailPanel = ({
 }: {
   record: CheckpointMatchWithCheckpoint;
   section: PlanSection | null;
-}) => (
-  <div className="match-detail-panel">
-    <div className="match-detail-column">
-      <Typography.Title level={5}>Section Detail</Typography.Title>
-      <Descriptions column={1} size="small" bordered>
-        <Descriptions.Item label="Section ID">{record.section_id}</Descriptions.Item>
-        <Descriptions.Item label="Title">{section?.title ?? record.section?.title ?? "-"}</Descriptions.Item>
-        <Descriptions.Item label="Section No">{section?.section_no ?? record.section?.section_no ?? "-"}</Descriptions.Item>
-        <Descriptions.Item label="Level">{section?.level ?? record.section?.level ?? "-"}</Descriptions.Item>
-      </Descriptions>
-      <div className="match-detail-text">{section?.content || "No content found for this section."}</div>
-    </div>
+}) => {
+  const sectionTitle = section?.title ?? record.section?.title ?? "";
+  const sectionNo = section?.section_no ?? record.section?.section_no ?? "";
+  const sectionContent = record.section?.content || section?.content || "";
+  const sectionText = [sectionNo, sectionTitle, sectionContent].filter(Boolean).join("\n");
+  const checkpointObjects = record.checkpoint?.object_terms ?? [];
+  const checkpointContext = [record.checkpoint?.clause_no, record.checkpoint?.rule_code].filter(Boolean) as string[];
+  const checkpointText = [record.checkpoint?.rule_text, record.checkpoint?.clause_text].filter(Boolean).join("\n\n");
+  const matchedObjects = findMatchedTerms(checkpointObjects, sectionText);
+  const matchedContext = findMatchedTerms(checkpointContext, sectionText);
+  const highlightTerms = [...matchedObjects, ...matchedContext];
 
-    <div className="match-detail-column">
-      <Typography.Title level={5}>Checkpoint Detail</Typography.Title>
-      <Descriptions column={1} size="small" bordered>
-        <Descriptions.Item label="Checkpoint ID">{record.checkpoint_id}</Descriptions.Item>
-        <Descriptions.Item label="Clause No">{record.checkpoint?.clause_no ?? "-"}</Descriptions.Item>
-        <Descriptions.Item label="Rule Code">{record.checkpoint?.rule_code ?? "-"}</Descriptions.Item>
-        <Descriptions.Item label="Objects">
-          {record.checkpoint?.object_terms?.length ? (
-            <Space size={4} wrap>
-              {record.checkpoint.object_terms.map((term) => (
-                <Tag key={term}>{term}</Tag>
-              ))}
-            </Space>
+  return (
+    <div className="match-detail-panel">
+      <div className="match-detail-column">
+        <Typography.Title level={5}>Section Text</Typography.Title>
+        <div className="match-detail-title">{[sectionNo, sectionTitle].filter(Boolean).join(" ") || "-"}</div>
+        <div className="match-detail-text">
+          {sectionContent ? <HighlightedText text={sectionContent} terms={highlightTerms} /> : "No content found for this section."}
+        </div>
+      </div>
+
+      <div className="match-detail-column">
+        <Typography.Title level={5}>Checkpoint Text / Objects</Typography.Title>
+        <div className="match-object-row">
+          {checkpointObjects.length ? (
+            checkpointObjects.map((term) => (
+              <Tag key={term} color={matchedObjects.includes(term) ? "gold" : "default"}>
+                {term}
+              </Tag>
+            ))
           ) : (
-            "-"
+            <Typography.Text type="secondary">No objects</Typography.Text>
           )}
-        </Descriptions.Item>
-      </Descriptions>
-      <Typography.Text strong>Rule Text</Typography.Text>
-      <div className="match-detail-text">{record.checkpoint?.rule_text || "No rule text found."}</div>
-      <Typography.Text strong>Clause Text</Typography.Text>
-      <div className="match-detail-text">{record.checkpoint?.clause_text || "No clause text found."}</div>
+        </div>
+        <div className="match-detail-text">
+          {checkpointText ? <HighlightedText text={checkpointText} terms={highlightTerms} /> : "No checkpoint text found."}
+        </div>
+      </div>
+
+      <div className="match-detail-column">
+        <Typography.Title level={5}>Matched On</Typography.Title>
+        <MatchSignal label="Objects" score={record.match_dimensions?.object_match} values={matchedObjects} />
+        <MatchSignal label="Context" score={record.match_dimensions?.context_match} values={matchedContext} />
+        <MatchSignal label="Semantic Text" score={record.match_dimensions?.semantic_similarity} values={[]} />
+        {record.match_reason ? <div className="match-reason">{record.match_reason}</div> : null}
+      </div>
     </div>
-  </div>
-);
+  );
+};
+
+const MatchSignal = ({
+  label,
+  score,
+  values,
+}: {
+  label: string;
+  score: unknown;
+  values: string[];
+}) => {
+  const rawScore = typeof score === "number" ? score : Number(score ?? 0);
+  const numericScore = Number.isFinite(rawScore) ? rawScore : 0;
+  return (
+    <div className="match-signal">
+      <div className="match-signal-header">
+        <Typography.Text strong>{label}</Typography.Text>
+        <Tag color={numericScore > 0 ? "green" : "default"}>{numericScore.toFixed(2)}</Tag>
+      </div>
+      <div className="match-object-row">
+        {values.length ? (
+          values.map((value) => (
+            <Tag key={value} color="gold">
+              {value}
+            </Tag>
+          ))
+        ) : (
+          <Typography.Text type="secondary">No exact term</Typography.Text>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const HighlightedText = ({ text, terms }: { text: string; terms: string[] }) => {
+  const matchedTerms = uniqueTerms(terms).filter(Boolean);
+  if (!matchedTerms.length) {
+    return <>{text}</>;
+  }
+  const pattern = new RegExp(`(${matchedTerms.map(escapeRegExp).join("|")})`, "gi");
+  const parts = text.split(pattern);
+  return (
+    <>
+      {parts.map((part, index) =>
+        matchedTerms.some((term) => term.toLowerCase() === part.toLowerCase()) ? (
+          <mark className="match-highlight" key={`${part}-${index}`}>
+            {part}
+          </mark>
+        ) : (
+          <span key={`${part}-${index}`}>{part}</span>
+        ),
+      )}
+    </>
+  );
+};
+
+const findMatchedTerms = (terms: string[], text: string) => {
+  const normalizedText = text.toLowerCase();
+  return uniqueTerms(terms).filter((term) => normalizedText.includes(term.toLowerCase()));
+};
+
+const uniqueTerms = (terms: string[]) => Array.from(new Set(terms.map((term) => term.trim()).filter(Boolean)));
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const StatusTag = ({ status }: { status: string }) => {
   const color =

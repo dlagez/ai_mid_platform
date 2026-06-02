@@ -100,6 +100,7 @@ export type CheckpointMatchWithCheckpoint = CheckpointMatchResult & {
     level: number;
     title: string;
     section_no: string | null;
+    content: string;
   } | null;
 };
 
