@@ -19,6 +19,7 @@ import {
   type CheckpointMatchWithCheckpoint,
   type ReviewTask,
 } from "../services/reviewTaskService";
+import { getDocumentSections, type PlanSection } from "../services/documentService";
 
 export const ReviewTaskDetailPage = () => {
   const { id } = useParams();
@@ -26,6 +27,7 @@ export const ReviewTaskDetailPage = () => {
   const taskId = Number(id);
   const [task, setTask] = useState<ReviewTask | null>(null);
   const [matches, setMatches] = useState<CheckpointMatchWithCheckpoint[]>([]);
+  const [sectionById, setSectionById] = useState<Map<number, PlanSection>>(new Map());
   const [total, setTotal] = useState(0);
   const [query, setQuery] = useState<CheckpointMatchListQuery>({ matched_only: true, page: 1, page_size: 20 });
   const [loading, setLoading] = useState({
@@ -34,6 +36,7 @@ export const ReviewTaskDetailPage = () => {
     profiles: false,
     match: false,
     run: false,
+    sections: false,
   });
 
   const loadTask = async () => {
@@ -71,8 +74,26 @@ export const ReviewTaskDetailPage = () => {
     }
   };
 
+  const loadSections = async (documentId: number) => {
+    setLoading((current) => ({ ...current, sections: true }));
+    try {
+      const result = await getDocumentSections(documentId);
+      setSectionById(flattenSections(result.sections));
+    } catch {
+      message.error("Failed to load plan sections.");
+    } finally {
+      setLoading((current) => ({ ...current, sections: false }));
+    }
+  };
+
   const refresh = async () => {
-    await Promise.all([loadTask(), loadMatches()]);
+    const nextTask = taskId ? await getReviewTask(taskId).catch(() => null) : null;
+    if (!nextTask) {
+      message.error("Failed to load review task.");
+      return;
+    }
+    setTask(nextTask);
+    await Promise.all([loadSections(nextTask.plan_document_id), loadMatches()]);
   };
 
   useEffect(() => {
@@ -198,8 +219,14 @@ export const ReviewTaskDetailPage = () => {
       >
         <Table<CheckpointMatchWithCheckpoint>
           rowKey="id"
-          loading={loading.matches}
+          loading={loading.matches || loading.sections}
           dataSource={matches}
+          expandable={{
+            expandedRowRender: (record) => (
+              <MatchDetailPanel record={record} section={sectionById.get(record.section_id) ?? null} />
+            ),
+            rowExpandable: () => true,
+          }}
           pagination={{
             current: query.page,
             pageSize: query.page_size,
@@ -214,7 +241,9 @@ export const ReviewTaskDetailPage = () => {
               width: 220,
               render: (_, record) => (
                 <Space direction="vertical" size={0}>
-                  <Typography.Text strong>{record.section?.title ?? `Section ${record.section_id}`}</Typography.Text>
+                  <Typography.Text strong>
+                    {sectionById.get(record.section_id)?.title ?? record.section?.title ?? `Section ${record.section_id}`}
+                  </Typography.Text>
                   <Typography.Text type="secondary">{record.section?.section_no ?? "-"}</Typography.Text>
                 </Space>
               ),
@@ -224,7 +253,9 @@ export const ReviewTaskDetailPage = () => {
               dataIndex: "checkpoint",
               render: (_, record) => (
                 <Space direction="vertical" size={0}>
-                  <Typography.Text>{record.checkpoint?.rule_text ?? `Checkpoint ${record.checkpoint_id}`}</Typography.Text>
+                  <Typography.Text ellipsis style={{ maxWidth: 520 }}>
+                    {record.checkpoint?.rule_text ?? `Checkpoint ${record.checkpoint_id}`}
+                  </Typography.Text>
                   <Typography.Text type="secondary">
                     {[record.checkpoint?.clause_no, record.checkpoint?.rule_code].filter(Boolean).join(" / ") || "-"}
                   </Typography.Text>
@@ -265,6 +296,51 @@ export const ReviewTaskDetailPage = () => {
   );
 };
 
+const MatchDetailPanel = ({
+  record,
+  section,
+}: {
+  record: CheckpointMatchWithCheckpoint;
+  section: PlanSection | null;
+}) => (
+  <div className="match-detail-panel">
+    <div className="match-detail-column">
+      <Typography.Title level={5}>Section Detail</Typography.Title>
+      <Descriptions column={1} size="small" bordered>
+        <Descriptions.Item label="Section ID">{record.section_id}</Descriptions.Item>
+        <Descriptions.Item label="Title">{section?.title ?? record.section?.title ?? "-"}</Descriptions.Item>
+        <Descriptions.Item label="Section No">{section?.section_no ?? record.section?.section_no ?? "-"}</Descriptions.Item>
+        <Descriptions.Item label="Level">{section?.level ?? record.section?.level ?? "-"}</Descriptions.Item>
+      </Descriptions>
+      <div className="match-detail-text">{section?.content || "No content found for this section."}</div>
+    </div>
+
+    <div className="match-detail-column">
+      <Typography.Title level={5}>Checkpoint Detail</Typography.Title>
+      <Descriptions column={1} size="small" bordered>
+        <Descriptions.Item label="Checkpoint ID">{record.checkpoint_id}</Descriptions.Item>
+        <Descriptions.Item label="Clause No">{record.checkpoint?.clause_no ?? "-"}</Descriptions.Item>
+        <Descriptions.Item label="Rule Code">{record.checkpoint?.rule_code ?? "-"}</Descriptions.Item>
+        <Descriptions.Item label="Objects">
+          {record.checkpoint?.object_terms?.length ? (
+            <Space size={4} wrap>
+              {record.checkpoint.object_terms.map((term) => (
+                <Tag key={term}>{term}</Tag>
+              ))}
+            </Space>
+          ) : (
+            "-"
+          )}
+        </Descriptions.Item>
+      </Descriptions>
+      <Typography.Text strong>Rule Text</Typography.Text>
+      <div className="match-detail-text">{record.checkpoint?.rule_text || "No rule text found."}</div>
+      <Typography.Text strong>Clause Text</Typography.Text>
+      <div className="match-detail-text">{record.checkpoint?.clause_text || "No clause text found."}</div>
+    </div>
+  </div>
+);
+
 const StatusTag = ({ status }: { status: string }) => {
   const color =
     status === "completed" || status === "selected" || status === "executed"
@@ -280,3 +356,15 @@ const StatusTag = ({ status }: { status: string }) => {
 };
 
 const formatDateTime = (value: string | null) => (value ? new Date(value).toLocaleString() : "-");
+
+const flattenSections = (sections: PlanSection[]) => {
+  const rows = new Map<number, PlanSection>();
+  const visit = (items: PlanSection[]) => {
+    for (const item of items) {
+      rows.set(item.id, item);
+      visit(item.children || []);
+    }
+  };
+  visit(sections);
+  return rows;
+};

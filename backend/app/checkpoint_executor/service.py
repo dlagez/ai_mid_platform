@@ -24,7 +24,12 @@ class CheckpointExecutorService:
 
         matches = (
             db.query(CheckpointMatchResult)
-            .filter(CheckpointMatchResult.task_id == task.id, CheckpointMatchResult.status == "selected")
+            .join(PlanSection, PlanSection.id == CheckpointMatchResult.section_id)
+            .filter(
+                CheckpointMatchResult.task_id == task.id,
+                CheckpointMatchResult.status == "selected",
+                PlanSection.level >= 3,
+            )
             .order_by(CheckpointMatchResult.match_score.desc(), CheckpointMatchResult.id.asc())
             .all()
         )

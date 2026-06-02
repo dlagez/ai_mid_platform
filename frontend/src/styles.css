@@ -137,6 +137,42 @@ body {
   max-height: 720px;
 }
 
+.match-detail-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  padding: 8px 0;
+}
+
+.match-detail-column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.match-detail-column h5.ant-typography {
+  margin: 0;
+}
+
+.match-detail-text {
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid #e8edf3;
+  border-radius: 8px;
+  background: #fbfcfe;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
+}
+
+@media (max-width: 960px) {
+  .match-detail-panel {
+    grid-template-columns: 1fr;
+  }
+}
+
 .parse-progress-panel {
   margin-bottom: 12px;
   padding: 12px;

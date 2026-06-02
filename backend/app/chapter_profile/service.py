@@ -118,7 +118,7 @@ class ChapterProfileService:
         )
         target_sections = _filter_profile_target_sections(sections)
         if not target_sections:
-            raise PlatformError("The parsed document has no leaf sections with non-empty content.", status_code=400)
+            raise PlatformError("The parsed document has no level-3+ leaf sections with non-empty content.", status_code=400)
 
         section_map = {section.id: section for section in sections}
         job = ChapterProfileGenerationJob(
@@ -642,7 +642,7 @@ class ChapterProfileService:
         )
         sections_to_profile = _filter_profile_target_sections(sections)
         if not sections_to_profile:
-            raise PlatformError("The review task document has no leaf sections with non-empty content.", status_code=400)
+            raise PlatformError("The review task document has no level-3+ leaf sections with non-empty content.", status_code=400)
 
         section_map = {section.id: section for section in sections}
         created_count = 0
@@ -829,7 +829,7 @@ def _filter_profile_target_sections(sections: list[PlanSection]) -> list[PlanSec
     return [
         section
         for section in sections
-        if section.id not in parent_ids and (section.content or "").strip()
+        if section.level >= 3 and section.id not in parent_ids and (section.content or "").strip()
     ]
 
 

@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session, joinedload
 
-from app.db.models import ChapterReviewProfile, CheckpointMatchResult, ReviewCheckpoint, ReviewTask
+from app.db.models import ChapterReviewProfile, CheckpointMatchResult, PlanSection, ReviewCheckpoint, ReviewTask
 from app.rule_engine.matchers import normalize_text
 from app.utils.exceptions import PlatformError
 
@@ -31,7 +31,14 @@ class CheckpointMatcherService:
         task = db.query(ReviewTask).filter(ReviewTask.id == task_id).first()
         if not task:
             raise PlatformError(f"Review task id={task_id} not found", status_code=404)
-        query = db.query(CheckpointMatchResult).filter(CheckpointMatchResult.task_id == task.id)
+        query = (
+            db.query(CheckpointMatchResult)
+            .join(PlanSection, PlanSection.id == CheckpointMatchResult.section_id)
+            .filter(
+                CheckpointMatchResult.task_id == task.id,
+                PlanSection.level >= 3,
+            )
+        )
         if status:
             query = query.filter(CheckpointMatchResult.status == status)
         elif matched_only:
@@ -51,9 +58,11 @@ class CheckpointMatcherService:
 
         profiles = (
             db.query(ChapterReviewProfile)
+            .join(PlanSection, PlanSection.id == ChapterReviewProfile.section_id)
             .filter(
                 ChapterReviewProfile.task_id == task.id,
                 ChapterReviewProfile.status == "active",
+                PlanSection.level >= 3,
             )
             .order_by(ChapterReviewProfile.id.asc())
             .all()
@@ -61,10 +70,12 @@ class CheckpointMatcherService:
         if not profiles:
             profiles = (
                 db.query(ChapterReviewProfile)
+                .join(PlanSection, PlanSection.id == ChapterReviewProfile.section_id)
                 .filter(
                     ChapterReviewProfile.task_id.is_(None),
                     ChapterReviewProfile.document_id == task.plan_document_id,
                     ChapterReviewProfile.status == "active",
+                    PlanSection.level >= 3,
                 )
                 .order_by(ChapterReviewProfile.id.asc())
                 .all()
@@ -77,12 +88,10 @@ class CheckpointMatcherService:
 
         checkpoints = db.query(ReviewCheckpoint).filter(ReviewCheckpoint.status == "active").order_by(ReviewCheckpoint.id.asc()).all()
 
-        existing_rows = (
-            db.query(CheckpointMatchResult)
-            .filter(CheckpointMatchResult.task_id == task.id)
-            .all()
+        db.query(CheckpointMatchResult).filter(CheckpointMatchResult.task_id == task.id).delete(
+            synchronize_session=False
         )
-        existing_by_key = {(row.section_id, row.checkpoint_id): row for row in existing_rows}
+        existing_by_key: dict[tuple[int, int], CheckpointMatchResult] = {}
         best_score_by_key: dict[tuple[int, int], float] = {}
         status_by_key: dict[tuple[int, int], str] = {}
         for profile in profiles:
