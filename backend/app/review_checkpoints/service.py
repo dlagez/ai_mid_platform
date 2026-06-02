@@ -35,14 +35,11 @@ MAX_GENERATION_CONCURRENCY = 10
 
 CHECKPOINT_PROMPT = """你是一名施工规范最小审查点抽取助手。
 
-请基于 条文标题、条文原文，抽取用于“施工方案证据点匹配”的最小规范审查点。
+请基于 内容，抽取用于“施工方案证据点匹配”的最小规范审查点。
 
 只输出单行紧凑 JSON，不要输出 Markdown，不要添加解释性文字，不要换行，不要缩进，不要使用代码块。
 
-规范名称：{standard_name}
-条文编号：{clause_no}
-条文标题：{clause_title}
-条文原文：{clause_content}
+内容：{clause_title}{clause_content}
 
 重要原则：
 
@@ -654,7 +651,9 @@ class ReviewCheckpointService:
 
         model_service = ModelService()
         clause_title = clause.title or ""
-        clause_content = (clause.content or "").strip() or clause_title
+        clause_content = (clause.content or "").strip()
+        if clause_content == clause_title:
+            clause_title = ""
         prompt = (
             CHECKPOINT_PROMPT.replace("{standard_name}", standard.standard_name if standard else "")
             .replace("{clause_no}", clause.clause_no or "")

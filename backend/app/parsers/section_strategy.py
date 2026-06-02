@@ -658,7 +658,12 @@ def _is_plausible_heading(
         if stack and stack[0].section_no == section_no:
             return False
         last_root_no = _last_numeric_root_no(roots)
-        return last_root_no is None or int(parts[0]) >= last_root_no
+        current_root_no = int(parts[0])
+        if last_root_no is not None and current_root_no > last_root_no + 1:
+            return False
+        if stack and _single_number_item_like_heading(heading):
+            return False
+        return last_root_no is None or current_root_no >= last_root_no
 
     root_no = parts[0]
     if stack and stack[0].section_no and stack[0].section_no.split(".", 1)[0] != root_no:
@@ -684,3 +689,11 @@ def _looks_like_title(line: str, max_length: int = 120) -> bool:
     if not text or len(text) > max_length:
         return False
     return not re.search(r"[。！？；;]$", text)
+
+
+def _single_number_item_like_heading(heading: HeadingMatch) -> bool:
+    section_no = heading.section_no
+    if not section_no or not re.match(r"^\d{1,2}$", section_no):
+        return False
+    title_text = _remove_section_no(_strip_markdown_heading_prefix(heading.title), section_no)
+    return bool(re.search(r"[:：]", title_text))
