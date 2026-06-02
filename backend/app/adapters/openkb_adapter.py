@@ -47,7 +47,7 @@ class OpenKBAdapter(BaseAdapter):
         super().__init__(name, config)
         self.kb_root = Path(config.get("kb_root", "storage/openkb")).expanduser()
         self.default_kb = config.get("default_kb", "default")
-        self.model = config.get("model", "qwen3.6-plus")
+        self.model = config.get("model", "qwen3.6-flash")
         self.language = config.get("language", "en")
         self.pageindex_threshold = int(config.get("pageindex_threshold", 20))
         self._configure_llm_env(config)

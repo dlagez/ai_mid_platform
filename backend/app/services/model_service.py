@@ -26,7 +26,7 @@ class ModelService:
         if not config_path.exists():
             self.providers: dict[str, dict[str, Any]] = {}
             self.model_map: dict[str, str] = {}
-            self.default_model = "qwen3.6-plus"
+            self.default_model = "qwen3.6-flash"
             return
 
         raw = yaml.safe_load(config_path.read_text()) or {}
@@ -49,7 +49,7 @@ class ModelService:
         provider_name = self._get_provider_for_model(model)
         provider_config = self.providers.get(provider_name, {})
 
-        # LiteLLM requires model names prefixed with provider (e.g. "dashscope/qwen3.6-plus")
+        # LiteLLM requires model names prefixed with provider (e.g. "dashscope/qwen3.6-flash")
         if "/" not in model:
             payload = {**payload, "model": f"{provider_name}/{model}"}
 

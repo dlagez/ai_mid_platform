@@ -1,7 +1,7 @@
 openkb:
   kb_root: storage/openkb
   default_kb: default
-  model: dashscope/qwen3.6-plus
+  model: dashscope/qwen3.6-flash
   language: zh
   pageindex_threshold: 20
   llm_api_key: null

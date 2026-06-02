@@ -34,7 +34,7 @@ PROFILE_EXTRACTION_PROMPT = """你是一名施工方案最小证据点抽取助�
 
 请基于施工方案 章节标题 和 章节正文，抽取用于“规范规则点匹配”的最小方案证据点。
 
-只输出 JSON，不要输出 Markdown，不要添加解释性文字。
+只输出单行紧凑 JSON，不要输出 Markdown，不要添加解释性文字，不要换行，不要缩进，不要使用代码块。
 
 章节标题：
 {title}
@@ -70,16 +70,8 @@ PROFILE_EXTRACTION_PROMPT = """你是一名施工方案最小证据点抽取助�
     object_terms: [“梁下立杆”, “下层顶板立杆”, “上下层立杆”]
 
 
-输出格式必须严格为：
-{
-"evidence_points": [
-{
-"evidence_text": "",
-"object_terms": [],
-"confidence": 0.0
-}
-]
-}
+输出格式必须严格为单行 JSON：
+{"evidence_points":[{"evidence_text":"","object_terms":[],"confidence":0.0}]}
 """
 
 

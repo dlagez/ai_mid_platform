@@ -129,6 +129,7 @@ export const PromptTestPage = () => {
                   placeholder="Backend default"
                   options={[
                     { label: "Backend default", value: "" },
+                    { label: "qwen3.6-flash", value: "qwen3.6-flash" },
                     { label: "qwen-max", value: "qwen-max" },
                     { label: "qwen-plus", value: "qwen-plus" },
                     { label: "qwen-turbo", value: "qwen-turbo" },

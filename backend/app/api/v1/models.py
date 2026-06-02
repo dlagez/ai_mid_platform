@@ -17,7 +17,7 @@ router = APIRouter()
 
 
 class ModelCallRequest(BaseModel):
-    model: str = Field(default="gpt-4o-mini")
+    model: str = Field(default="qwen3.6-flash")
     messages: list[dict[str, str]]
     temperature: float = 0.2
     max_tokens: int | None = 1024

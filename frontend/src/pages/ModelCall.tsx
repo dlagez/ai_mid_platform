@@ -36,7 +36,7 @@ export const ModelCallPage = () => {
           layout="vertical"
           onFinish={handleSubmit}
           initialValues={{
-            model: "gpt-4o-mini",
+            model: "qwen3.6-flash",
             prompt: defaultPrompt,
             temperature: 0.2,
             max_tokens: 1024,
@@ -45,6 +45,7 @@ export const ModelCallPage = () => {
           <Form.Item name="model" label="Model" rules={[{ required: true }]}>
             <Select
               options={[
+                { label: "qwen3.6-flash (阿里百炼)", value: "qwen3.6-flash" },
                 { label: "gpt-4o-mini", value: "gpt-4o-mini" },
                 { label: "gpt-4o", value: "gpt-4o" },
                 { label: "qwen-max (阿里百炼)", value: "qwen-max" },

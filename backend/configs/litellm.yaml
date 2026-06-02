@@ -7,6 +7,6 @@ providers:
 
 # Model routing: model -> provider
 models:
-  qwen3.6-plus: dashscope
+  qwen3.6-flash: dashscope
 
-default_model: qwen3.6-plus
+default_model: qwen3.6-flash
