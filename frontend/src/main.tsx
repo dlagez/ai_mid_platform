@@ -52,6 +52,7 @@ import { TemplateSectionRulesPage } from "./pages/TemplateSectionRules";
 import { StandardClausesPage } from "./pages/StandardClauses";
 import { CheckpointGenerationJobsPage } from "./pages/CheckpointGenerationJobs";
 import { ReviewCheckpointsPage } from "./pages/ReviewCheckpoints";
+import { ReviewTaskDetailPage } from "./pages/ReviewTaskDetail";
 import { ReviewTasksPage } from "./pages/ReviewTasks";
 
 const resources = [
@@ -190,6 +191,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                 <Route path="/standards/:id/clauses" element={<StandardClausesPage />} />
                 <Route path="/review-checkpoints" element={<ReviewCheckpointsPage />} />
                 <Route path="/review-tasks" element={<ReviewTasksPage />} />
+                <Route path="/review-tasks/:id" element={<ReviewTaskDetailPage />} />
                 <Route path="/utils/ppocr" element={<UtilsPPOcrPage />} />
                 <Route path="*" element={<ErrorComponent />} />
               </Route>
