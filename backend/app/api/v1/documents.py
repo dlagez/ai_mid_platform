@@ -273,6 +273,16 @@ async def cancel_chapter_profile_job(
     return CreateChapterProfileGenerationJobResponse(job=job)
 
 
+@router.delete("/chapter-profile-jobs/{job_id}", response_model=ChapterProfileGenerationJobRead)
+async def delete_chapter_profile_job(
+    job_id: int,
+    _: Annotated[CurrentUser, Depends(require_permission("knowledge:write"))],
+    profile_service: Annotated[ChapterProfileService, Depends(get_chapter_profile_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ChapterProfileGenerationJobRead:
+    return profile_service.delete_generation_job(db, job_id)
+
+
 @router.get("/chapter-profile-jobs/{job_id}/items", response_model=ChapterProfileGenerationItemList)
 async def list_chapter_profile_job_items(
     job_id: int,

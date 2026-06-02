@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { EyeOutlined, PauseCircleOutlined, PlayCircleOutlined, ReloadOutlined, StopOutlined } from "@ant-design/icons";
+import { DeleteOutlined, EyeOutlined, PauseCircleOutlined, PlayCircleOutlined, ReloadOutlined, StopOutlined } from "@ant-design/icons";
 import { Button, Card, Popconfirm, Progress, Space, Table, Tag, Typography, message } from "antd";
 import {
   cancelChapterProfileJob,
+  deleteChapterProfileJob,
   listChapterProfileJobs,
   listDocuments,
   pauseChapterProfileJob,
@@ -106,6 +107,19 @@ export const ChapterProfileJobsPage = () => {
     }
   };
 
+  const handleDelete = async (jobId: number) => {
+    setActingJobId(jobId);
+    try {
+      await deleteChapterProfileJob(jobId);
+      message.success(`Chapter profile job #${jobId} deleted.`);
+      await load();
+    } catch {
+      message.error("Failed to delete chapter profile job.");
+    } finally {
+      setActingJobId(null);
+    }
+  };
+
   return (
     <div className="page">
       <div className="page-heading">
@@ -201,7 +215,7 @@ export const ChapterProfileJobsPage = () => {
             },
             {
               title: "",
-              width: 430,
+              width: 520,
               render: (_, record) => (
                 <Space wrap>
                   <Button
@@ -255,6 +269,24 @@ export const ChapterProfileJobsPage = () => {
                       Cancel
                     </Button>
                   </Popconfirm>
+                  <Popconfirm
+                    title={`Delete chapter profile job #${record.id}?`}
+                    description="This will remove this job and its generated profiles."
+                    okText="Delete"
+                    cancelText="Keep"
+                    disabled={!canDeleteProfileJob(record)}
+                    onConfirm={() => void handleDelete(record.id)}
+                  >
+                    <Button
+                      size="small"
+                      danger
+                      icon={<DeleteOutlined />}
+                      loading={actingJobId === record.id}
+                      disabled={!canDeleteProfileJob(record)}
+                    >
+                      Delete
+                    </Button>
+                  </Popconfirm>
                 </Space>
               ),
             },
@@ -286,5 +318,8 @@ const canPauseProfileJob = (job: ChapterProfileGenerationJob) => ["queued", "run
 const canResumeProfileJob = (job: ChapterProfileGenerationJob) => job.status === "paused";
 
 const canCancelProfileJob = (job: ChapterProfileGenerationJob) => ["queued", "running", "paused"].includes(job.status);
+
+const canDeleteProfileJob = (job: ChapterProfileGenerationJob) =>
+  ["success", "partial_success", "failed", "cancelled"].includes(job.status);
 
 const formatDate = (value: string | null) => (value ? new Date(value).toLocaleString() : "-");

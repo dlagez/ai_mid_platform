@@ -350,6 +350,38 @@ class ChapterProfileService:
         db.refresh(job)
         return job
 
+    def delete_generation_job(self, db: Session, job_id: int) -> ChapterProfileGenerationJob:
+        job = self.get_generation_job(db, job_id)
+        if job.status not in TERMINAL_GENERATION_JOB_STATUSES:
+            raise PlatformError("Cancel or wait for this chapter profile job before deleting it.", status_code=400)
+
+        section_ids = [
+            section_id
+            for (section_id,) in (
+                db.query(ChapterProfileGenerationItem.section_id)
+                .filter(
+                    ChapterProfileGenerationItem.job_id == job.id,
+                    ChapterProfileGenerationItem.section_id.isnot(None),
+                )
+                .all()
+            )
+            if section_id is not None
+        ]
+        if section_ids:
+            profile_query = db.query(ChapterReviewProfile).filter(
+                ChapterReviewProfile.document_id == job.document_id,
+                ChapterReviewProfile.section_id.in_(section_ids),
+            )
+            if job.task_id is None:
+                profile_query = profile_query.filter(ChapterReviewProfile.task_id.is_(None))
+            else:
+                profile_query = profile_query.filter(ChapterReviewProfile.task_id == job.task_id)
+            profile_query.delete(synchronize_session=False)
+
+        db.delete(job)
+        db.commit()
+        return job
+
     def list_generation_items(
         self,
         db: Session,

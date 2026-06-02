@@ -322,6 +322,11 @@ export const cancelChapterProfileJob = async (jobId: number) => {
   return data.job;
 };
 
+export const deleteChapterProfileJob = async (jobId: number) => {
+  const { data } = await apiClient.delete<ChapterProfileGenerationJob>(`/documents/chapter-profile-jobs/${jobId}`);
+  return data;
+};
+
 export const listChapterProfileJobItems = async (
   jobId: number,
   query: { status?: string; page?: number; page_size?: number } = {},
