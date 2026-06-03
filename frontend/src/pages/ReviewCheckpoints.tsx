@@ -26,6 +26,7 @@ import {
 import type { DataNode } from "antd/es/tree";
 import {
   DeleteOutlined,
+  DownloadOutlined,
   PlusOutlined,
   ReloadOutlined,
   SaveOutlined,
@@ -35,6 +36,7 @@ import type { CurrentUser } from "../types/platform";
 import {
   createReviewCheckpoint,
   deleteReviewCheckpoint,
+  exportReviewCheckpoints,
   getReviewCheckpointTree,
   listCheckpointGenerationJobs,
   updateReviewCheckpoint,
@@ -69,7 +71,7 @@ export const ReviewCheckpointsPage = () => {
   const [editing, setEditing] = useState<ReviewCheckpoint | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedCheckpointId, setSelectedCheckpointId] = useState<number | null>(null);
-  const [loading, setLoading] = useState({ standards: false, tree: false, save: false, create: false, delete: false, jobs: false, archiveStandard: false });
+  const [loading, setLoading] = useState({ standards: false, tree: false, save: false, create: false, delete: false, jobs: false, archiveStandard: false, export: false });
   const [filterForm] = Form.useForm<CheckpointFilterValues>();
   const [editForm] = Form.useForm<CheckpointFormValues>();
   const [createForm] = Form.useForm<CheckpointFormValues>();
@@ -246,6 +248,21 @@ export const ReviewCheckpointsPage = () => {
     }
   };
 
+  const exportCheckpoints = async () => {
+    if (!selectedStandardId || !checkpointTree) {
+      return;
+    }
+    setLoading((current) => ({ ...current, export: true }));
+    try {
+      await exportReviewCheckpoints(selectedStandardId, checkpointTree.standard.standard_name);
+      message.success("Export started.");
+    } catch {
+      message.error("Failed to export checkpoints.");
+    } finally {
+      setLoading((current) => ({ ...current, export: false }));
+    }
+  };
+
   const checkpointsByClauseId = useMemo(() => groupCheckpointsByClauseId(checkpointTree?.checkpoints ?? []), [checkpointTree]);
   const selectedClause = useMemo(
     () => (checkpointTree && selectedClauseId ? checkpointTree.clauses.find((clause) => clause.id === selectedClauseId) ?? null : null),
@@ -267,6 +284,14 @@ export const ReviewCheckpointsPage = () => {
             }}
           >
             Refresh
+          </Button>
+          <Button
+            icon={<DownloadOutlined />}
+            loading={loading.export}
+            disabled={!selectedStandardId}
+            onClick={() => void exportCheckpoints()}
+          >
+            Export
           </Button>
           {isAdmin ? (
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>

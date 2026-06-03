@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -201,6 +203,25 @@ async def archive_standard_checkpoints(
 ) -> dict:
     count = service.archive_standard_checkpoints(db, standard_id)
     return {"archived_count": count, "standard_id": standard_id}
+
+
+@router.get("/export")
+async def export_review_checkpoints(
+    _: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[ReviewCheckpointService, Depends(get_review_checkpoint_service)],
+    db: Annotated[Session, Depends(get_db)],
+    standard_id: Annotated[int, Query(ge=1)] = ...,
+) -> StreamingResponse:
+    buffer, filename = service.export_checkpoints_to_excel(db, standard_id=standard_id)
+    encoded_name = quote(filename, safe="")
+    fallback_name = f"review_checkpoints_{standard_id}.xlsx"
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{fallback_name}\"; filename*=UTF-8''{encoded_name}",
+        },
+    )
 
 
 @router.get("/{checkpoint_id}", response_model=ReviewCheckpointRead)

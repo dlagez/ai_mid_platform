@@ -232,3 +232,37 @@ export const getCheckpointGenerationTree = async (jobId: number) => {
   );
   return data;
 };
+
+export const exportReviewCheckpoints = async (standardId: number, standardName: string) => {
+  const response = await apiClient.get<Blob>("/review-checkpoints/export", {
+    params: { standard_id: standardId },
+    responseType: "blob",
+  });
+
+  const contentDisposition = response.headers["content-disposition"];
+  let filename = `${standardName}_checkpoints.xlsx`;
+  if (contentDisposition) {
+    const match = contentDisposition.match(/filename\*=UTF-8''(.+?)(?:;|$)/);
+    if (match) {
+      filename = decodeURIComponent(match[1]);
+    } else {
+      const fallback = contentDisposition.match(/filename="?([^";]+)"?/);
+      if (fallback) {
+        filename = fallback[1];
+      }
+    }
+  }
+
+  const url = URL.createObjectURL(
+    new Blob([response.data], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }),
+  );
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};

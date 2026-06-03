@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import re
 from collections.abc import Generator
 from datetime import datetime
 from typing import Any
 
+from openpyxl import Workbook
 from sqlalchemy import String, cast, or_
 from sqlalchemy.orm import Session
 
@@ -390,6 +392,48 @@ class ReviewCheckpointService:
             else []
         )
         return job, standard, clauses, items, checkpoints
+
+    def export_checkpoints_to_excel(
+        self,
+        db: Session,
+        *,
+        standard_id: int,
+    ) -> tuple[io.BytesIO, str]:
+        standard = db.query(StandardDocument).filter(StandardDocument.id == standard_id).first()
+        if not standard or standard.status == "archived":
+            raise PlatformError(f"Standard document id={standard_id} not found", status_code=404)
+
+        checkpoints = (
+            db.query(ReviewCheckpoint)
+            .filter(
+                ReviewCheckpoint.standard_id == standard_id,
+                ReviewCheckpoint.status != "archived",
+            )
+            .order_by(ReviewCheckpoint.clause_id.asc(), ReviewCheckpoint.id.asc())
+            .all()
+        )
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Checkpoints"
+
+        ws.append(["序号", "clause_no", "rule_code", "rule_text", "confidence"])
+        for idx, cp in enumerate(checkpoints, start=1):
+            ws.append([
+                idx,
+                _sanitize_cell(cp.clause_no or ""),
+                _sanitize_cell(cp.rule_code or ""),
+                _sanitize_cell(cp.rule_text or ""),
+                cp.confidence if cp.confidence is not None else "",
+            ])
+
+        safe_name = re.sub(r"[^\w一-鿿\-]", "_", standard.standard_name).strip("_")
+        filename = f"{safe_name}_checkpoints.xlsx"
+
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        return buffer, filename
 
     def list_generation_items(
         self,
@@ -855,6 +899,10 @@ def _dedupe_ints(values: list[int]) -> list[int]:
             seen.add(int_value)
             result.append(int_value)
     return result
+
+
+def _sanitize_cell(value: str) -> str:
+    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
 
 
 def _parse_json(content: str) -> dict[str, Any] | list[dict[str, Any]]:
