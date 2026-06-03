@@ -28,11 +28,12 @@ import {
 import type { Dayjs } from "dayjs";
 import type { TablePaginationConfig } from "antd";
 import type { DataNode } from "antd/es/tree";
-import { ImportOutlined, ReloadOutlined, RobotOutlined, SearchOutlined } from "@ant-design/icons";
+import { FileAddOutlined, ImportOutlined, ReloadOutlined, RobotOutlined, SearchOutlined } from "@ant-design/icons";
 import type { CurrentUser } from "../types/platform";
 import {
   createCheckpointGenerationJob,
   getReviewCheckpointTree,
+  importManualReviewCheckpoints,
   listCheckpointGenerationItems,
   listCheckpointGenerationJobs,
   type CheckpointGenerationItem,
@@ -58,6 +59,11 @@ type ImportStandardFormValues = Omit<ImportStandardRequest, "effective_date"> & 
   effective_date?: Dayjs | null;
 };
 
+type ManualImportFormValues = {
+  clause_id: number;
+  json_payload: string;
+};
+
 export const CheckpointGenerationJobsPage = () => {
   const { data: user } = useGetIdentity<CurrentUser>();
   const isAdmin = user?.role === "admin";
@@ -74,6 +80,7 @@ export const CheckpointGenerationJobsPage = () => {
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   const [parseJobs, setParseJobs] = useState<PPOcrPdfJob[]>([]);
   const [importOpen, setImportOpen] = useState(false);
+  const [manualImportOpen, setManualImportOpen] = useState(false);
   const [useLlm, setUseLlm] = useState(true);
   const [generationConcurrency, setGenerationConcurrency] = useState(5);
   const [loading, setLoading] = useState({
@@ -82,10 +89,12 @@ export const CheckpointGenerationJobsPage = () => {
     jobs: false,
     queue: false,
     import: false,
+    manualImport: false,
     parseJobs: false,
   });
   const [form] = Form.useForm<FilterValues>();
   const [importForm] = Form.useForm<ImportStandardFormValues>();
+  const [manualImportForm] = Form.useForm<ManualImportFormValues>();
 
   const loadStandards = async (nextSelectedId = selectedStandardId) => {
     setLoading((current) => ({ ...current, standards: true }));
@@ -239,6 +248,50 @@ export const CheckpointGenerationJobsPage = () => {
     await queueClauses(selectedRowKeys.map((key) => Number(key)));
   };
 
+  const openManualImport = (clauseId = selectedClauseId) => {
+    if (!selectedStandardId) {
+      message.warning("Select a standard first.");
+      return;
+    }
+    manualImportForm.setFieldsValue({
+      clause_id: clauseId ?? undefined,
+      json_payload: manualImportForm.getFieldValue("json_payload") || defaultManualImportJson,
+    });
+    setManualImportOpen(true);
+  };
+
+  const submitManualImport = async () => {
+    if (!selectedStandardId) {
+      message.warning("Select a standard first.");
+      return;
+    }
+    const values = await manualImportForm.validateFields();
+    let payload: Record<string, unknown> | Array<Record<string, unknown>>;
+    try {
+      payload = JSON.parse(values.json_payload);
+    } catch {
+      message.error("JSON 格式不正确。");
+      return;
+    }
+    setLoading((current) => ({ ...current, manualImport: true }));
+    try {
+      const result = await importManualReviewCheckpoints({
+        standard_id: selectedStandardId,
+        clause_id: values.clause_id,
+        payload,
+      });
+      message.success(`Imported ${result.created_count} checkpoint(s).`);
+      setManualImportOpen(false);
+      manualImportForm.resetFields();
+      setSelectedClauseId(values.clause_id);
+      await loadStandardWorkspace(selectedStandardId);
+    } catch {
+      message.error("Failed to import checkpoints from JSON.");
+    } finally {
+      setLoading((current) => ({ ...current, manualImport: false }));
+    }
+  };
+
   const openImport = async () => {
     importForm.resetFields();
     setImportOpen(true);
@@ -293,6 +346,7 @@ export const CheckpointGenerationJobsPage = () => {
   );
   const selectedItem = selectedClause ? itemsByClauseId.get(selectedClause.id) ?? null : null;
   const selectedCheckpoints = selectedClause ? checkpointsByClauseId.get(selectedClause.id) ?? [] : [];
+  const clauseOptions = useMemo(() => toClauseSelectOptions(standardTree?.clauses ?? []), [standardTree]);
   const ungeneratedClauseIds = useMemo(
     () => findQueueableClauseIds(standardTree?.clauses ?? [], checkpointsByClauseId, itemsByClauseId),
     [standardTree, checkpointsByClauseId, itemsByClauseId],
@@ -307,9 +361,18 @@ export const CheckpointGenerationJobsPage = () => {
             Refresh
           </Button>
           {isAdmin ? (
-            <Button type="primary" icon={<ImportOutlined />} onClick={() => void openImport()}>
-              Import Standard
-            </Button>
+            <>
+              <Button
+                icon={<FileAddOutlined />}
+                disabled={!selectedStandardId}
+                onClick={() => openManualImport()}
+              >
+                Import JSON
+              </Button>
+              <Button type="primary" icon={<ImportOutlined />} onClick={() => void openImport()}>
+                Import Standard
+              </Button>
+            </>
           ) : null}
         </Space>
       </div>
@@ -480,6 +543,7 @@ export const CheckpointGenerationJobsPage = () => {
                   isAdmin={isAdmin}
                   loading={loading.queue}
                   onQueue={() => void queueClauses([selectedClause.id])}
+                  onManualImport={() => openManualImport(selectedClause.id)}
                 />
               ) : (
                 <Empty description="Select a clause" />
@@ -488,6 +552,52 @@ export const CheckpointGenerationJobsPage = () => {
           </Col>
         </Row>
       </Card>
+
+      <Modal
+        title="Import Checkpoints from JSON"
+        open={manualImportOpen}
+        width={820}
+        confirmLoading={loading.manualImport}
+        onOk={() => void submitManualImport()}
+        onCancel={() => setManualImportOpen(false)}
+      >
+        <Form form={manualImportForm} layout="vertical" requiredMark={false}>
+          <Form.Item name="clause_id" label="Target Clause" rules={[{ required: true, message: "Select a target clause." }]}>
+            <Select
+              showSearch
+              optionFilterProp="label"
+              options={clauseOptions}
+              placeholder="Select which clause/chapter this checkpoint belongs to"
+            />
+          </Form.Item>
+          <Form.Item
+            name="json_payload"
+            label="Checkpoint JSON"
+            rules={[
+              { required: true, message: "Paste checkpoint JSON." },
+              {
+                validator: (_, value: string | undefined) => {
+                  if (!value) {
+                    return Promise.resolve();
+                  }
+                  try {
+                    JSON.parse(value);
+                    return Promise.resolve();
+                  } catch {
+                    return Promise.reject(new Error("JSON 格式不正确。"));
+                  }
+                },
+              },
+            ]}
+          >
+            <Input.TextArea
+              rows={14}
+              spellCheck={false}
+              placeholder='{"checkpoints":[{"rule_text":"","object_terms":[],"confidence":0.0}]}'
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Modal
         title="Import Standard"
@@ -545,6 +655,7 @@ const ClauseCheckpointPanel = ({
   isAdmin,
   loading,
   onQueue,
+  onManualImport,
 }: {
   clause: StandardClause;
   generationItem: CheckpointGenerationItem | null;
@@ -552,6 +663,7 @@ const ClauseCheckpointPanel = ({
   isAdmin: boolean;
   loading: boolean;
   onQueue: () => void;
+  onManualImport: () => void;
 }) => {
   const canQueue = isAdmin && !checkpoints.length && !isInFlight(generationItem);
   return (
@@ -573,6 +685,11 @@ const ClauseCheckpointPanel = ({
       {canQueue ? (
         <Button type="primary" icon={<RobotOutlined />} loading={loading} onClick={onQueue}>
           Add This Clause to Queue
+        </Button>
+      ) : null}
+      {isAdmin ? (
+        <Button icon={<FileAddOutlined />} onClick={onManualImport}>
+          Import JSON to This Clause
         </Button>
       ) : null}
       <Tabs
@@ -695,6 +812,13 @@ const toClauseTreeData = (
   return roots.map((clause) => toClauseNode(clause, childrenByParentId, itemsByClauseId, checkpointsByClauseId));
 };
 
+const toClauseSelectOptions = (clauses: StandardClause[]) =>
+  clauses.map((clause) => {
+    const indent = "  ".repeat(Math.max(clause.level - 1, 0));
+    const label = `${indent}${clause.clause_no ? `${clause.clause_no} ` : ""}${clause.title || `Clause #${clause.id}`}`;
+    return { value: clause.id, label };
+  });
+
 const getClauseKeys = (clauses: StandardClause[]): Key[] => clauses.map((clause) => String(clause.id));
 
 const toClauseNode = (
@@ -816,5 +940,19 @@ const getGenerateTooltip = (isAdmin: boolean, selectedCount: number) => {
   }
   return `将 ${selectedCount} 条条文加入生成队列`;
 };
+
+const defaultManualImportJson = JSON.stringify(
+  {
+    checkpoints: [
+      {
+        rule_text: "",
+        object_terms: [],
+        confidence: 0.0,
+      },
+    ],
+  },
+  null,
+  2,
+);
 
 const stripExtension = (value: string) => value.replace(/\.[^.]+$/, "");

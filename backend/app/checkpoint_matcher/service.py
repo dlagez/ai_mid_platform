@@ -192,11 +192,9 @@ class CheckpointMatcherService:
                 }
 
         selected_keys = _select_section_checkpoint_keys(best_by_key)
-        status_by_key: dict[tuple[int, int], str] = {}
         now = datetime.utcnow()
-        for (section_id, checkpoint_id), scored in best_by_key.items():
-            status = "selected" if (section_id, checkpoint_id) in selected_keys else "candidate"
-            status_by_key[(section_id, checkpoint_id)] = status
+        for section_id, checkpoint_id in selected_keys:
+            scored = best_by_key[(section_id, checkpoint_id)]
             db.add(
                 CheckpointMatchResult(
                     task_id=task.id,
@@ -205,15 +203,15 @@ class CheckpointMatcherService:
                     match_score=round(scored["score"], 2),
                     match_reason=scored["reason"],
                     match_dimensions=scored["dimensions"],
-                    status=status,
+                    status="selected",
                     updated_at=now,
                 )
             )
         db.commit()
         return {
             "task_id": task.id,
-            "selected_count": sum(1 for status in status_by_key.values() if status == "selected"),
-            "candidate_count": sum(1 for status in status_by_key.values() if status == "candidate"),
+            "selected_count": len(selected_keys),
+            "candidate_count": 0,
             "items": [],
         }
 
@@ -331,6 +329,8 @@ def _term_match(left: str, right: str) -> bool:
         return False
     if _is_generic_term(left) or _is_generic_term(right):
         return False
+    if left == right and len(left) >= 2:
+        return True
     shorter = min(len(left), len(right))
     longer = max(len(left), len(right))
     if shorter < 3:

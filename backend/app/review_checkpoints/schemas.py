@@ -69,6 +69,17 @@ class GenerateCheckpointsFromClausesResponse(BaseModel):
     skipped: list[dict]
 
 
+class ManualCheckpointImportRequest(BaseModel):
+    standard_id: int
+    clause_id: int
+    payload: dict | list
+
+
+class ManualCheckpointImportResponse(BaseModel):
+    created_count: int
+    checkpoint_ids: list[int]
+
+
 class CheckpointGenerationJobRead(BaseModel):
     id: int
     standard_id: int | None

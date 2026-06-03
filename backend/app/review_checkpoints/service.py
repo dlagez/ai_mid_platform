@@ -20,6 +20,7 @@ from app.db.models import (
 from app.db.session import SessionLocal
 from app.review_checkpoints.schemas import (
     GenerateCheckpointsFromClausesRequest,
+    ManualCheckpointImportRequest,
     ReviewCheckpointCreate,
     ReviewCheckpointUpdate,
 )
@@ -185,6 +186,44 @@ class ReviewCheckpointService:
         db.commit()
         db.refresh(row)
         return row
+
+    def import_manual_checkpoints(self, db: Session, data: ManualCheckpointImportRequest) -> dict[str, Any]:
+        clause = (
+            db.query(StandardClause)
+            .filter(StandardClause.id == data.clause_id, StandardClause.standard_id == data.standard_id)
+            .first()
+        )
+        if not clause:
+            raise PlatformError(
+                f"Standard clause id={data.clause_id} not found in standard id={data.standard_id}",
+                status_code=404,
+            )
+
+        checkpoint_payloads = _checkpoint_payloads_from_extracted(data.payload)
+        if not checkpoint_payloads:
+            raise PlatformError("No valid checkpoints found in JSON payload.", status_code=400)
+
+        checkpoint_ids: list[int] = []
+        now = datetime.utcnow()
+        for index, payload in enumerate(checkpoint_payloads, start=1):
+            checkpoint = ReviewCheckpoint(
+                rule_code=payload.get("rule_code") or self._default_code(clause, index),
+                rule_text=payload["rule_text"],
+                object_terms=payload["object_terms"],
+                standard_id=clause.standard_id,
+                clause_id=clause.id,
+                clause_no=clause.clause_no,
+                clause_text=clause.content,
+                confidence=payload["confidence"],
+                status="active",
+                updated_at=now,
+            )
+            db.add(checkpoint)
+            db.flush()
+            checkpoint_ids.append(checkpoint.id)
+
+        db.commit()
+        return {"created_count": len(checkpoint_ids), "checkpoint_ids": checkpoint_ids}
 
     def create_generation_job(
         self,
@@ -770,7 +809,14 @@ def _as_confidence(value: Any, *, default: float | None = None) -> float | None:
 
 
 def _checkpoint_payloads_from_extracted(extracted: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
-    raw_checkpoints = extracted if isinstance(extracted, list) else extracted.get("checkpoints", [])
+    if isinstance(extracted, list):
+        raw_checkpoints = extracted
+    elif "checkpoints" in extracted:
+        raw_checkpoints = extracted.get("checkpoints", [])
+    elif "rule_text" in extracted:
+        raw_checkpoints = [extracted]
+    else:
+        raw_checkpoints = []
     if not isinstance(raw_checkpoints, list):
         return []
 
@@ -814,17 +860,79 @@ def _dedupe_ints(values: list[int]) -> list[int]:
 def _parse_json(content: str) -> dict[str, Any] | list[dict[str, Any]]:
     if not content:
         raise PlatformError("LLM returned empty content.", status_code=502)
-    cleaned = re.sub(r"^```(?:json)?|```$", "", content.strip(), flags=re.IGNORECASE | re.MULTILINE).strip()
-    try:
-        parsed = json.loads(cleaned)
-    except json.JSONDecodeError:
-        match = re.search(r"(\{.*\}|\[.*\])", cleaned, flags=re.DOTALL)
-        if not match:
-            raise PlatformError("LLM output is not JSON.", status_code=502)
-        parsed = json.loads(match.group(0))
-    if not isinstance(parsed, (dict, list)):
-        raise PlatformError("LLM output JSON must be an object or array.", status_code=502)
-    return parsed
+    cleaned = _strip_json_fence(content)
+    last_error: json.JSONDecodeError | None = None
+    for candidate in _json_candidates(cleaned):
+        for variant in _json_candidate_variants(candidate):
+            try:
+                parsed = json.loads(variant, strict=False)
+            except json.JSONDecodeError as exc:
+                last_error = exc
+                continue
+            if not isinstance(parsed, (dict, list)):
+                raise PlatformError("LLM output JSON must be an object or array.", status_code=502)
+            return parsed
+    if last_error:
+        raise PlatformError(f"LLM output is not valid JSON: {last_error}", status_code=502)
+    raise PlatformError("LLM output is not JSON.", status_code=502)
+
+
+def _strip_json_fence(content: str) -> str:
+    cleaned = content.strip()
+    fence_match = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", cleaned, flags=re.IGNORECASE | re.DOTALL)
+    return fence_match.group(1).strip() if fence_match else cleaned
+
+
+def _json_candidate_variants(candidate: str) -> list[str]:
+    repaired = _repair_invalid_json_escapes(candidate)
+    compacted = re.sub(r",(\s*[}\]])", r"\1", repaired)
+    variants = [candidate, repaired, compacted]
+    return list(dict.fromkeys(variants))
+
+
+def _repair_invalid_json_escapes(candidate: str) -> str:
+    candidate = re.sub(r"\\u(?![0-9a-fA-F]{4})", r"\\\\u", candidate)
+    return re.sub(r'\\(?!["\\/bfnrtu])', r"\\\\", candidate)
+
+
+def _json_candidates(content: str) -> list[str]:
+    candidates: list[str] = []
+    for start, char in enumerate(content):
+        if char not in "{[":
+            continue
+        candidate = _balanced_json_candidate(content, start)
+        if candidate:
+            candidates.append(candidate)
+    return candidates
+
+
+def _balanced_json_candidate(content: str, start: int) -> str | None:
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+    for index in range(start, len(content)):
+        char = content[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+            continue
+        if char in "{[":
+            stack.append("}" if char == "{" else "]")
+            continue
+        if char in "}]":
+            if not stack or stack.pop() != char:
+                return None
+            if not stack:
+                return content[start : index + 1].strip()
+    return None
 
 
 def _extract_objects(text: str) -> list[str]:

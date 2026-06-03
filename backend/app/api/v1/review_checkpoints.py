@@ -14,6 +14,8 @@ from app.review_checkpoints.schemas import (
     CheckpointGenerationTreeResponse,
     GenerateCheckpointsFromClausesRequest,
     GenerateCheckpointsFromClausesResponse,
+    ManualCheckpointImportRequest,
+    ManualCheckpointImportResponse,
     ReviewCheckpointCreate,
     ReviewCheckpointList,
     ReviewCheckpointRead,
@@ -85,6 +87,16 @@ async def generate_review_checkpoints_from_standard_clauses(
     db: Annotated[Session, Depends(get_db)],
 ) -> GenerateCheckpointsFromClausesResponse:
     return await service.generate_from_standard_clauses(db, payload)
+
+
+@router.post("/manual-import", response_model=ManualCheckpointImportResponse)
+async def import_manual_review_checkpoints(
+    payload: ManualCheckpointImportRequest,
+    _: Annotated[CurrentUser, Depends(require_admin)],
+    service: Annotated[ReviewCheckpointService, Depends(get_review_checkpoint_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ManualCheckpointImportResponse:
+    return service.import_manual_checkpoints(db, payload)
 
 
 @router.post("/generation-jobs", response_model=CheckpointGenerationJobCreateResponse)

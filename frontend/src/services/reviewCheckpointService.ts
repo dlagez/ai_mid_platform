@@ -63,6 +63,17 @@ export type GenerateCheckpointsResult = {
   skipped: Array<Record<string, unknown>>;
 };
 
+export type ManualCheckpointImportRequest = {
+  standard_id: number;
+  clause_id: number;
+  payload: Record<string, unknown> | Array<Record<string, unknown>>;
+};
+
+export type ManualCheckpointImportResult = {
+  created_count: number;
+  checkpoint_ids: number[];
+};
+
 export type CheckpointGenerationJob = {
   id: number;
   standard_id: number | null;
@@ -177,6 +188,11 @@ export const generateReviewCheckpoints = async (payload: GenerateCheckpointsRequ
     "/review-checkpoints/generate-from-standard-clauses",
     payload,
   );
+  return data;
+};
+
+export const importManualReviewCheckpoints = async (payload: ManualCheckpointImportRequest) => {
+  const { data } = await apiClient.post<ManualCheckpointImportResult>("/review-checkpoints/manual-import", payload);
   return data;
 };
 
