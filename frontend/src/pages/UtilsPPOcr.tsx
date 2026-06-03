@@ -12,13 +12,11 @@ import {
   Switch,
   Table,
   Tag,
-  Tree,
   Typography,
   Upload,
   message,
 } from "antd";
 import type { UploadFile } from "antd";
-import type { DataNode } from "antd/es/tree";
 import {
   ApartmentOutlined,
   CloudUploadOutlined,
@@ -28,6 +26,7 @@ import {
   ReloadOutlined,
 } from "@ant-design/icons";
 import { PdfPreviewModal } from "../components/PdfPreviewModal";
+import { SectionTreeViewer, findFirstSection, getSectionTreeKeys } from "../components/SectionTreeViewer";
 import { fetchPdfPreviewUrl } from "../services/filePreviewService";
 import {
   createPPOcrPdfJob,
@@ -202,7 +201,7 @@ export const UtilsPPOcrPage = () => {
       const result = await getPPOcrPdfSections(jobId);
       const nextTree = buildSectionTree(result.flat_sections, result.sections);
       setSectionsResult(result);
-      setExpandedSectionKeys(getSectionKeys(nextTree));
+      setExpandedSectionKeys(getSectionTreeKeys(nextTree));
       setSelectedSection(findFirstSection(nextTree));
     } catch {
       if (showError) {
@@ -232,7 +231,7 @@ export const UtilsPPOcrPage = () => {
       });
       const nextTree = buildSectionTree(result.flat_sections, result.sections);
       setSectionsResult(result);
-      setExpandedSectionKeys(getSectionKeys(nextTree));
+      setExpandedSectionKeys(getSectionTreeKeys(nextTree));
       setSelectedSection(findFirstSection(nextTree));
       message.success("Document sections rebuilt.");
     } catch {
@@ -540,46 +539,27 @@ export const UtilsPPOcrPage = () => {
                 ) : null}
 
                 {sectionTree.length ? (
-                  <Row gutter={[16, 16]}>
-                    <Col xs={24} lg={10}>
-                      <div className="plan-section-tree">
-                        <Tree
-                          blockNode
-                          expandedKeys={expandedSectionKeys}
-                          onExpand={(keys) => setExpandedSectionKeys(keys.map(String))}
-                          selectedKeys={selectedSection ? [String(selectedSection.id)] : []}
-                          treeData={toSectionTreeData(sectionTree)}
-                          onSelect={(keys) => {
-                            const key = keys[0];
-                            if (!key) {
-                              return;
-                            }
-                            setSelectedSection(findSection(sectionTree, Number(key)));
-                          }}
-                        />
-                      </div>
-                    </Col>
-                    <Col xs={24} lg={14}>
-                      <div className="plan-section-content">
-                        {selectedSection ? (
-                          <>
-                            <Space wrap>
-                              <Typography.Title level={4} style={{ margin: 0 }}>
-                                {selectedSection.title}
-                              </Typography.Title>
-                              <Tag>Level {selectedSection.title_level}</Tag>
-                              {selectedSection.section_no ? <Tag color="blue">{selectedSection.section_no}</Tag> : null}
-                            </Space>
-                            <Typography.Paragraph style={{ whiteSpace: "pre-wrap", marginTop: 12 }}>
-                              {selectedSection.content || "No content found for this section."}
-                            </Typography.Paragraph>
-                          </>
-                        ) : (
-                          <Empty description="Select a section" />
-                        )}
-                      </div>
-                    </Col>
-                  </Row>
+                  <SectionTreeViewer
+                    sections={sectionTree}
+                    selectedSection={selectedSection}
+                    expandedKeys={expandedSectionKeys}
+                    onExpand={setExpandedSectionKeys}
+                    onSelectSection={setSelectedSection}
+                    renderDetail={(section) => (
+                      <>
+                        <Space wrap>
+                          <Typography.Title level={4} style={{ margin: 0 }}>
+                            {section.title}
+                          </Typography.Title>
+                          <Tag>Level {section.title_level}</Tag>
+                          {section.section_no ? <Tag color="blue">{section.section_no}</Tag> : null}
+                        </Space>
+                        <Typography.Paragraph style={{ whiteSpace: "pre-wrap", marginTop: 12 }}>
+                          {section.content || "No content found for this section."}
+                        </Typography.Paragraph>
+                      </>
+                    )}
+                  />
                 ) : (
                   <Empty description="No sections found. Select a strategy and rebuild after parsing." />
                 )}
@@ -642,13 +622,6 @@ const formatConfidence = (value: number | null) => {
   return value.toFixed(3);
 };
 
-const toSectionTreeData = (sections: PPOcrResultSection[]): DataNode[] =>
-  sections.map((section) => ({
-    key: String(section.id),
-    title: section.title,
-    children: toSectionTreeData(section.children),
-  }));
-
 const buildSectionTree = (
   flatSections: PPOcrResultSectionFlat[],
   fallbackTree: PPOcrResultSection[] = [],
@@ -677,25 +650,4 @@ const buildSectionTree = (
   });
 
   return roots;
-};
-
-const getSectionKeys = (sections: PPOcrResultSection[]): string[] =>
-  sections.flatMap((section) => [String(section.id), ...getSectionKeys(section.children)]);
-
-const findSection = (sections: PPOcrResultSection[], id: number): PPOcrResultSection | null => {
-  for (const section of sections) {
-    if (section.id === id) {
-      return section;
-    }
-    const child = findSection(section.children, id);
-    if (child) {
-      return child;
-    }
-  }
-  return null;
-};
-
-const findFirstSection = (sections: PPOcrResultSection[]): PPOcrResultSection | null => {
-  const [first] = sections;
-  return first ?? null;
 };

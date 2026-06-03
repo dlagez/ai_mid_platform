@@ -7,8 +7,8 @@ import {
   PlayCircleOutlined,
   ReloadOutlined,
 } from "@ant-design/icons";
-import { Button, Card, Descriptions, Space, Table, Tag, Typography, message } from "antd";
-import type { TablePaginationConfig } from "antd";
+import { Button, Card, Col, Descriptions, Empty, Row, Space, Table, Tag, Tree, Typography, message } from "antd";
+import type { DataNode } from "antd/es/tree";
 import {
   buildChapterProfiles,
   getReviewTask,
@@ -19,7 +19,12 @@ import {
   type CheckpointMatchWithCheckpoint,
   type ReviewTask,
 } from "../services/reviewTaskService";
-import { getDocumentSections, type PlanSection } from "../services/documentService";
+import {
+  getChapterProfileJobSections,
+  getDocumentSections,
+  listChapterProfileJobs,
+  type PlanSection,
+} from "../services/documentService";
 
 export const ReviewTaskDetailPage = () => {
   const { id } = useParams();
@@ -27,9 +32,12 @@ export const ReviewTaskDetailPage = () => {
   const taskId = Number(id);
   const [task, setTask] = useState<ReviewTask | null>(null);
   const [matches, setMatches] = useState<CheckpointMatchWithCheckpoint[]>([]);
+  const [sections, setSections] = useState<PlanSection[]>([]);
+  const [selectedSection, setSelectedSection] = useState<PlanSection | null>(null);
+  const [expandedSectionKeys, setExpandedSectionKeys] = useState<string[]>([]);
   const [sectionById, setSectionById] = useState<Map<number, PlanSection>>(new Map());
   const [total, setTotal] = useState(0);
-  const [query, setQuery] = useState<CheckpointMatchListQuery>({ matched_only: true, page: 1, page_size: 20 });
+  const [query, setQuery] = useState<CheckpointMatchListQuery>({ matched_only: true });
   const [loading, setLoading] = useState({
     task: false,
     matches: false,
@@ -55,31 +63,44 @@ export const ReviewTaskDetailPage = () => {
 
   const loadMatches = async (nextQuery = query) => {
     if (!taskId) {
-      return;
+      return [];
     }
     setLoading((current) => ({ ...current, matches: true }));
     try {
       const result = await listReviewTaskCheckpointMatches(taskId, nextQuery);
       setMatches(result.items);
       setTotal(result.total);
-      setQuery({
-        ...nextQuery,
-        page: result.page ?? nextQuery.page,
-        page_size: result.page_size ?? nextQuery.page_size,
-      });
+      setQuery(nextQuery);
+      return result.items;
     } catch {
       message.error("Failed to load checkpoint matches.");
+      return [];
     } finally {
       setLoading((current) => ({ ...current, matches: false }));
     }
   };
 
-  const loadSections = async (documentId: number) => {
+  const loadSections = async (task: ReviewTask, preferredSectionIds: number[] = []) => {
     setLoading((current) => ({ ...current, sections: true }));
     try {
-      const result = await getDocumentSections(documentId);
+      const profileJobs = await listChapterProfileJobs({
+        document_id: task.plan_document_id,
+        page: 1,
+        page_size: 100,
+      });
+      const profileJob = profileJobs.items.find((job) => job.task_id === task.id) ?? profileJobs.items[0];
+      const result = profileJob
+        ? await getChapterProfileJobSections(profileJob.id)
+        : await getDocumentSections(task.plan_document_id);
+      setSections(result.sections);
+      setExpandedSectionKeys(getSectionKeys(result.sections));
+      setSelectedSection(findFirstExistingSection(result.sections, preferredSectionIds) ?? findFirstSection(result.sections));
       setSectionById(flattenSections(result.sections));
     } catch {
+      setSections([]);
+      setSelectedSection(null);
+      setExpandedSectionKeys([]);
+      setSectionById(new Map());
       message.error("Failed to load plan sections.");
     } finally {
       setLoading((current) => ({ ...current, sections: false }));
@@ -93,7 +114,8 @@ export const ReviewTaskDetailPage = () => {
       return;
     }
     setTask(nextTask);
-    await Promise.all([loadSections(nextTask.plan_document_id), loadMatches()]);
+    const nextMatches = await loadMatches();
+    await loadSections(nextTask, nextMatches.map((match) => match.section_id));
   };
 
   useEffect(() => {
@@ -109,6 +131,7 @@ export const ReviewTaskDetailPage = () => {
     try {
       const result = await buildChapterProfiles(taskId);
       message.success(`Profiles saved: ${result.created_count} created, ${result.updated_count} updated.`);
+      await refresh();
     } catch {
       message.error("Failed to build chapter profiles.");
     } finally {
@@ -121,7 +144,7 @@ export const ReviewTaskDetailPage = () => {
     try {
       const result = await matchReviewCheckpoints(taskId);
       message.success(`Matched ${result.selected_count} selected checkpoints.`);
-      await loadMatches({ ...query, page: 1 });
+      await loadMatches(query);
     } catch {
       message.error("Failed to match checkpoints.");
     } finally {
@@ -142,13 +165,8 @@ export const ReviewTaskDetailPage = () => {
     }
   };
 
-  const handleTableChange = async (pagination: TablePaginationConfig) => {
-    await loadMatches({
-      ...query,
-      page: pagination.current ?? 1,
-      page_size: pagination.pageSize ?? 20,
-    });
-  };
+  const matchesBySectionId = groupMatchesBySectionId(matches);
+  const unmappedMatches = getUnmappedMatches(matches, sectionById);
 
   return (
     <div className="page">
@@ -197,104 +215,182 @@ export const ReviewTaskDetailPage = () => {
       </Card>
 
       <Card
-        title="Checkpoint Matches"
+        title="Review Tree"
         extra={
           <Space>
+            <Typography.Text type="secondary">{total} matches</Typography.Text>
             <Button
               size="small"
               type={query.matched_only ? "primary" : "default"}
-              onClick={() => void loadMatches({ ...query, matched_only: true, status: undefined, page: 1 })}
+              onClick={() => void loadMatches({ matched_only: true, status: undefined })}
             >
               Matched
             </Button>
             <Button
               size="small"
               type={!query.matched_only && !query.status ? "primary" : "default"}
-              onClick={() => void loadMatches({ ...query, matched_only: false, status: undefined, page: 1 })}
+              onClick={() => void loadMatches({ matched_only: false, status: undefined })}
             >
               All
             </Button>
           </Space>
         }
       >
-        <Table<CheckpointMatchWithCheckpoint>
-          rowKey="id"
-          loading={loading.matches || loading.sections}
-          dataSource={matches}
-          expandable={{
-            expandedRowRender: (record) => (
-              <MatchDetailPanel record={record} section={sectionById.get(record.section_id) ?? null} />
-            ),
-            rowExpandable: () => true,
-          }}
-          pagination={{
-            current: query.page,
-            pageSize: query.page_size,
-            total,
-            showSizeChanger: true,
-          }}
-          onChange={(pagination) => void handleTableChange(pagination)}
-          columns={[
-            {
-              title: "Section",
-              dataIndex: "section",
-              width: 220,
-              render: (_, record) => (
-                <Space direction="vertical" size={0}>
-                  <Typography.Text strong>
-                    {sectionById.get(record.section_id)?.title ?? record.section?.title ?? `Section ${record.section_id}`}
-                  </Typography.Text>
-                  <Typography.Text type="secondary">{record.section?.section_no ?? "-"}</Typography.Text>
-                </Space>
-              ),
-            },
-            {
-              title: "Checkpoint",
-              dataIndex: "checkpoint",
-              render: (_, record) => (
-                <Space direction="vertical" size={0}>
-                  <Typography.Text ellipsis style={{ maxWidth: 520 }}>
-                    {record.checkpoint?.rule_text ?? `Checkpoint ${record.checkpoint_id}`}
-                  </Typography.Text>
-                  <Typography.Text type="secondary">
-                    {[record.checkpoint?.clause_no, record.checkpoint?.rule_code].filter(Boolean).join(" / ") || "-"}
-                  </Typography.Text>
-                </Space>
-              ),
-            },
-            {
-              title: "Score",
-              dataIndex: "match_score",
-              width: 100,
-              render: (value: number) => value.toFixed(2),
-            },
-            {
-              title: "Status",
-              dataIndex: "status",
-              width: 120,
-              render: (value: string) => <StatusTag status={value} />,
-            },
-            {
-              title: "Dimensions",
-              dataIndex: "match_dimensions",
-              width: 240,
-              render: (value: Record<string, unknown>) => (
-                <Space size={4} wrap>
-                  {Object.entries(value || {}).map(([key, item]) => (
-                    <Tag key={key}>
-                      {key}: {String(item)}
-                    </Tag>
-                  ))}
-                </Space>
-              ),
-            },
-            { title: "Reason", dataIndex: "match_reason", width: 180, ellipsis: true },
-          ]}
-        />
+        <Row gutter={[16, 16]}>
+          <Col xs={24} lg={9}>
+            <div className="plan-section-tree review-task-section-tree">
+              {sections.length ? (
+                <Tree
+                  blockNode
+                  expandedKeys={expandedSectionKeys}
+                  onExpand={(keys) => setExpandedSectionKeys(keys.map(String))}
+                  selectedKeys={selectedSection ? [String(selectedSection.id)] : []}
+                  treeData={toSectionTreeData(sections, matchesBySectionId)}
+                  onSelect={(keys) => setSelectedSection(keys[0] ? findSection(sections, Number(keys[0])) : null)}
+                />
+              ) : (
+                <Empty description={loading.sections ? "Loading sections..." : "No plan sections found."} />
+              )}
+            </div>
+          </Col>
+          <Col xs={24} lg={15}>
+            <div className="plan-section-content review-task-section-detail">
+              {selectedSection ? (
+                <SectionMatchDetail
+                  section={selectedSection}
+                  matches={matchesBySectionId.get(selectedSection.id) ?? []}
+                  sectionById={sectionById}
+                  loading={loading.matches || loading.sections}
+                />
+              ) : (
+                <Empty description="Select a section" />
+              )}
+            </div>
+          </Col>
+        </Row>
+        {unmappedMatches.length ? (
+          <div className="review-task-unmapped-matches">
+            <Typography.Title level={5}>Unmapped Matches</Typography.Title>
+            <Typography.Text type="secondary">
+              These matches reference section IDs that are not present in the loaded section tree.
+            </Typography.Text>
+            <CheckpointMatchTable
+              matches={unmappedMatches}
+              sectionById={sectionById}
+              loading={loading.matches || loading.sections}
+              pageSize={8}
+            />
+          </div>
+        ) : null}
       </Card>
     </div>
   );
 };
+
+const SectionMatchDetail = ({
+  section,
+  matches,
+  sectionById,
+  loading,
+}: {
+  section: PlanSection;
+  matches: CheckpointMatchWithCheckpoint[];
+  sectionById: Map<number, PlanSection>;
+  loading: boolean;
+}) => (
+  <Space direction="vertical" size={16} style={{ width: "100%" }}>
+    <div>
+      <Space wrap>
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          {section.title}
+        </Typography.Title>
+        <Tag>Level {section.level}</Tag>
+        {section.section_no ? <Tag color="blue">{section.section_no}</Tag> : null}
+        <Tag color={matches.length ? "green" : "default"}>{matches.length} matches</Tag>
+      </Space>
+      <Typography.Paragraph className="review-task-section-content">
+        {section.content || "No content found for this section."}
+      </Typography.Paragraph>
+    </div>
+
+    {matches.length ? (
+      <CheckpointMatchTable matches={matches} sectionById={sectionById} loading={loading} pageSize={8} />
+    ) : (
+      <Empty description="No checkpoint matches under this section." />
+    )}
+  </Space>
+);
+
+const CheckpointMatchTable = ({
+  matches,
+  sectionById,
+  loading,
+  pageSize,
+}: {
+  matches: CheckpointMatchWithCheckpoint[];
+  sectionById: Map<number, PlanSection>;
+  loading: boolean;
+  pageSize: number;
+}) => (
+  <Table<CheckpointMatchWithCheckpoint>
+    rowKey="id"
+    size="small"
+    loading={loading}
+    dataSource={matches}
+    expandable={{
+      expandedRowRender: (record) => (
+        <MatchDetailPanel record={record} section={sectionById.get(record.section_id) ?? null} />
+      ),
+      rowExpandable: () => true,
+    }}
+    pagination={{ pageSize, showSizeChanger: false }}
+    columns={[
+      {
+        title: "Section",
+        dataIndex: "section",
+        width: 180,
+        render: (_, record) => {
+          const matchedSection = sectionById.get(record.section_id) ?? null;
+          return (
+            <Space direction="vertical" size={0}>
+              <Typography.Text strong>
+                {matchedSection?.title ?? record.section?.title ?? `Section ${record.section_id}`}
+              </Typography.Text>
+              <Typography.Text type="secondary">{matchedSection?.section_no ?? record.section?.section_no ?? "-"}</Typography.Text>
+            </Space>
+          );
+        },
+      },
+      {
+        title: "Checkpoint",
+        dataIndex: "checkpoint",
+        render: (_, record) => (
+          <Space direction="vertical" size={0}>
+            <Typography.Text ellipsis style={{ maxWidth: 440 }}>
+              {record.checkpoint?.rule_text ?? `Checkpoint ${record.checkpoint_id}`}
+            </Typography.Text>
+            <Typography.Text type="secondary">
+              {[record.checkpoint?.clause_no, record.checkpoint?.rule_code].filter(Boolean).join(" / ") || "-"}
+            </Typography.Text>
+          </Space>
+        ),
+      },
+      {
+        title: "Score",
+        dataIndex: "match_score",
+        width: 90,
+        render: (value: number) => value.toFixed(2),
+      },
+      {
+        title: "Status",
+        dataIndex: "status",
+        width: 110,
+        render: (value: string) => <StatusTag status={value} />,
+      },
+      { title: "Reason", dataIndex: "match_reason", width: 180, ellipsis: true },
+    ]}
+  />
+);
 
 const MatchDetailPanel = ({
   record,
@@ -306,13 +402,26 @@ const MatchDetailPanel = ({
   const sectionTitle = section?.title ?? record.section?.title ?? "";
   const sectionNo = section?.section_no ?? record.section?.section_no ?? "";
   const sectionContent = record.section?.content || section?.content || "";
-  const sectionText = [sectionNo, sectionTitle, sectionContent].filter(Boolean).join("\n");
+  const profileObjects = stringValues(record.profile?.object_terms ?? []);
+  const profileContext = stringValues([record.profile?.chapter_title, record.profile?.chapter_path]);
+  const profileSemanticText = [
+    record.profile?.chapter_title,
+    record.profile?.chapter_path,
+    ...(record.profile?.object_terms ?? []),
+    record.profile?.evidence_text,
+  ].filter(Boolean).join("\n");
   const checkpointObjects = record.checkpoint?.object_terms ?? [];
-  const checkpointContext = [record.checkpoint?.clause_no, record.checkpoint?.rule_code].filter(Boolean) as string[];
+  const checkpointContext = stringValues([record.checkpoint?.rule_text]);
+  const checkpointSemanticText = [
+    record.checkpoint?.rule_text,
+    ...(record.checkpoint?.object_terms ?? []),
+  ].filter(Boolean).join("\n");
   const checkpointText = [record.checkpoint?.rule_text, record.checkpoint?.clause_text].filter(Boolean).join("\n\n");
-  const matchedObjects = findMatchedTerms(checkpointObjects, sectionText);
-  const matchedContext = findMatchedTerms(checkpointContext, sectionText);
-  const highlightTerms = [...matchedObjects, ...matchedContext];
+  const objectPairs = findMatchedPairs(profileObjects, checkpointObjects);
+  const contextPairs = findMatchedPairs(profileContext, checkpointContext);
+  const matchedObjectTerms = objectPairs.flatMap((pair) => [pair.left, pair.right]);
+  const matchedContextTerms = contextPairs.flatMap((pair) => [pair.left, pair.right]);
+  const highlightTerms = [...matchedObjectTerms, ...matchedContextTerms];
 
   return (
     <div className="match-detail-panel">
@@ -329,7 +438,7 @@ const MatchDetailPanel = ({
         <div className="match-object-row">
           {checkpointObjects.length ? (
             checkpointObjects.map((term) => (
-              <Tag key={term} color={matchedObjects.includes(term) ? "gold" : "default"}>
+              <Tag key={term} color={matchedObjectTerms.includes(term) ? "gold" : "default"}>
                 {term}
               </Tag>
             ))
@@ -344,9 +453,27 @@ const MatchDetailPanel = ({
 
       <div className="match-detail-column">
         <Typography.Title level={5}>Matched On</Typography.Title>
-        <MatchSignal label="Objects" score={record.match_dimensions?.object_match} values={matchedObjects} />
-        <MatchSignal label="Context" score={record.match_dimensions?.context_match} values={matchedContext} />
-        <MatchSignal label="Semantic Text" score={record.match_dimensions?.semantic_similarity} values={[]} />
+        <MatchSignal
+          label="Objects"
+          score={record.match_dimensions?.object_match}
+          pairs={objectPairs}
+          comparedLeft={profileObjects}
+          comparedRight={checkpointObjects}
+        />
+        <MatchSignal
+          label="Context"
+          score={record.match_dimensions?.context_match}
+          pairs={contextPairs}
+          comparedLeft={profileContext}
+          comparedRight={checkpointContext}
+        />
+        <MatchSignal
+          label="Semantic Text"
+          score={record.match_dimensions?.semantic_similarity}
+          pairs={[]}
+          comparedLeft={stringValues([profileSemanticText])}
+          comparedRight={stringValues([checkpointSemanticText])}
+        />
         {record.match_reason ? <div className="match-reason">{record.match_reason}</div> : null}
       </div>
     </div>
@@ -356,11 +483,15 @@ const MatchDetailPanel = ({
 const MatchSignal = ({
   label,
   score,
-  values,
+  pairs,
+  comparedLeft,
+  comparedRight,
 }: {
   label: string;
   score: unknown;
-  values: string[];
+  pairs: MatchPair[];
+  comparedLeft: string[];
+  comparedRight: string[];
 }) => {
   const rawScore = typeof score === "number" ? score : Number(score ?? 0);
   const numericScore = Number.isFinite(rawScore) ? rawScore : 0;
@@ -371,19 +502,32 @@ const MatchSignal = ({
         <Tag color={numericScore > 0 ? "green" : "default"}>{numericScore.toFixed(2)}</Tag>
       </div>
       <div className="match-object-row">
-        {values.length ? (
-          values.map((value) => (
-            <Tag key={value} color="gold">
-              {value}
+        {pairs.length ? (
+          pairs.map((pair) => (
+            <Tag key={`${pair.left}-${pair.right}`} color="gold">
+              {pair.left} &lt;-&gt; {pair.right}
             </Tag>
           ))
         ) : (
-          <Typography.Text type="secondary">No exact term</Typography.Text>
+          <Typography.Text type="secondary">{numericScore > 0 ? "Score matched without exact term pair" : "No match"}</Typography.Text>
         )}
+      </div>
+      <div className="match-compared">
+        <Typography.Text type="secondary">Section/Profile</Typography.Text>
+        <ComparedValues values={comparedLeft} />
+        <Typography.Text type="secondary">Checkpoint</Typography.Text>
+        <ComparedValues values={comparedRight} />
       </div>
     </div>
   );
 };
+
+const ComparedValues = ({ values }: { values: string[] }) =>
+  values.length ? (
+    <div className="match-compared-values">{values.map((value) => <span key={value}>{value}</span>)}</div>
+  ) : (
+    <Typography.Text type="secondary">-</Typography.Text>
+  );
 
 const HighlightedText = ({ text, terms }: { text: string; terms: string[] }) => {
   const matchedTerms = uniqueTerms(terms).filter(Boolean);
@@ -407,12 +551,55 @@ const HighlightedText = ({ text, terms }: { text: string; terms: string[] }) => 
   );
 };
 
-const findMatchedTerms = (terms: string[], text: string) => {
-  const normalizedText = text.toLowerCase();
-  return uniqueTerms(terms).filter((term) => normalizedText.includes(term.toLowerCase()));
+type MatchPair = {
+  left: string;
+  right: string;
 };
 
+const findMatchedPairs = (leftTerms: string[], rightTerms: string[]) => {
+  const pairs: MatchPair[] = [];
+  for (const left of uniqueTerms(leftTerms)) {
+    for (const right of uniqueTerms(rightTerms)) {
+      if (termMatches(left, right)) {
+        pairs.push({ left, right });
+      }
+    }
+  }
+  return pairs;
+};
+
+const termMatches = (left: string, right: string) => {
+  const normalizedLeft = normalizeMatchText(left);
+  const normalizedRight = normalizeMatchText(right);
+  if (!normalizedLeft || !normalizedRight) {
+    return false;
+  }
+  if (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft)) {
+    return true;
+  }
+  const leftTokens = bigrams(normalizedLeft);
+  const rightTokens = bigrams(normalizedRight);
+  if (!leftTokens.size || !rightTokens.size) {
+    return false;
+  }
+  const intersectionSize = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+  return intersectionSize / Math.max(Math.min(leftTokens.size, rightTokens.size), 1) >= 0.6;
+};
+
+const bigrams = (value: string) => {
+  const tokens = new Set<string>();
+  for (let index = 0; index < value.length - 1; index += 1) {
+    tokens.add(value.slice(index, index + 2));
+  }
+  return tokens;
+};
+
+const stringValues = (values: unknown[]) =>
+  values.map((value) => (value == null ? "" : String(value).trim())).filter(Boolean);
+
 const uniqueTerms = (terms: string[]) => Array.from(new Set(terms.map((term) => term.trim()).filter(Boolean)));
+
+const normalizeMatchText = (value: string) => value.toLowerCase().replace(/\s+/g, "");
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -431,6 +618,70 @@ const StatusTag = ({ status }: { status: string }) => {
 };
 
 const formatDateTime = (value: string | null) => (value ? new Date(value).toLocaleString() : "-");
+
+const groupMatchesBySectionId = (matches: CheckpointMatchWithCheckpoint[]) => {
+  const grouped = new Map<number, CheckpointMatchWithCheckpoint[]>();
+  for (const match of matches) {
+    const rows = grouped.get(match.section_id) ?? [];
+    rows.push(match);
+    grouped.set(match.section_id, rows);
+  }
+  return grouped;
+};
+
+const getUnmappedMatches = (
+  matches: CheckpointMatchWithCheckpoint[],
+  sectionById: Map<number, PlanSection>,
+) => matches.filter((match) => !sectionById.has(match.section_id));
+
+const toSectionTreeData = (
+  sections: PlanSection[],
+  matchesBySectionId: Map<number, CheckpointMatchWithCheckpoint[]>,
+): DataNode[] =>
+  sections.map((section) => {
+    const matchCount = matchesBySectionId.get(section.id)?.length ?? 0;
+    return {
+      key: String(section.id),
+      title: (
+        <Space size={6} wrap>
+          <span>{section.title}</span>
+          {matchCount ? <Tag color="blue">C {matchCount}</Tag> : null}
+        </Space>
+      ),
+      children: toSectionTreeData(section.children, matchesBySectionId),
+    };
+  });
+
+const getSectionKeys = (sections: PlanSection[]): string[] =>
+  sections.flatMap((section) => [String(section.id), ...getSectionKeys(section.children)]);
+
+const findSection = (sections: PlanSection[], id: number): PlanSection | null => {
+  for (const section of sections) {
+    if (section.id === id) {
+      return section;
+    }
+    const child = findSection(section.children, id);
+    if (child) {
+      return child;
+    }
+  }
+  return null;
+};
+
+const findFirstSection = (sections: PlanSection[]): PlanSection | null => {
+  const [first] = sections;
+  return first ?? null;
+};
+
+const findFirstExistingSection = (sections: PlanSection[], sectionIds: number[]): PlanSection | null => {
+  for (const sectionId of sectionIds) {
+    const section = findSection(sections, sectionId);
+    if (section) {
+      return section;
+    }
+  }
+  return null;
+};
 
 const flattenSections = (sections: PlanSection[]) => {
   const rows = new Map<number, PlanSection>();

@@ -102,6 +102,13 @@ export type CheckpointMatchWithCheckpoint = CheckpointMatchResult & {
     section_no: string | null;
     content: string;
   } | null;
+  profile: {
+    object_terms: string[];
+    chapter_title: string | null;
+    chapter_path: string | null;
+    evidence_text: string | null;
+    source_text: string | null;
+  } | null;
 };
 
 export type CheckpointMatchListResult = {

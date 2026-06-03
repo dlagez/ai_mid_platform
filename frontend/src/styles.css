@@ -137,6 +137,38 @@ body {
   max-height: 720px;
 }
 
+.review-task-section-tree {
+  max-height: 720px;
+}
+
+.review-task-section-detail {
+  max-height: 720px;
+}
+
+.review-task-section-content {
+  max-height: 160px;
+  overflow: auto;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #e8edf3;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.review-task-unmapped-matches {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e8edf3;
+}
+
+.review-task-unmapped-matches h5.ant-typography {
+  margin: 0 0 4px;
+}
+
+.review-task-unmapped-matches .ant-table-wrapper {
+  margin-top: 12px;
+}
+
 .match-detail-panel {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.2fr) minmax(220px, 0.8fr);
@@ -203,6 +235,30 @@ body {
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 8px;
+}
+
+.match-compared {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.match-compared-values {
+  display: flex;
+  max-height: 96px;
+  flex-wrap: wrap;
+  gap: 6px;
+  overflow: auto;
+}
+
+.match-compared-values span {
+  display: inline-block;
+  max-width: 100%;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #eef2f7;
+  color: #334155;
+  word-break: break-word;
 }
 
 .match-reason {

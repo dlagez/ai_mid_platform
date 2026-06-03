@@ -39,9 +39,20 @@ class PlanSectionSummaryRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ChapterProfileMatchRead(BaseModel):
+    object_terms: list = []
+    chapter_title: str | None = None
+    chapter_path: str | None = None
+    evidence_text: str | None = None
+    source_text: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class CheckpointMatchWithCheckpointRead(CheckpointMatchResultRead):
     checkpoint: ReviewCheckpointRead | None = None
     section: PlanSectionSummaryRead | None = None
+    profile: ChapterProfileMatchRead | None = None
 
 
 class CheckpointMatchListResponse(BaseModel):

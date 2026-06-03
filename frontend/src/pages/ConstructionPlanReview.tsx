@@ -18,13 +18,11 @@ import {
   Table,
   Tabs,
   Tag,
-  Tree,
   Typography,
   Upload,
   message,
 } from "antd";
 import type { UploadFile } from "antd";
-import type { DataNode } from "antd/es/tree";
 import {
   CloudUploadOutlined,
   DeleteOutlined,
@@ -33,6 +31,7 @@ import {
   SyncOutlined,
 } from "@ant-design/icons";
 import { PdfPreviewModal } from "../components/PdfPreviewModal";
+import { SectionTreeViewer, findFirstSection, getSectionTreeKeys } from "../components/SectionTreeViewer";
 import {
   createChapterProfileJob,
   deleteDocument,
@@ -196,7 +195,7 @@ const ParsedDocumentUploadPage = ({
     try {
       const result = await getDocumentSections(id, mode);
       setParsed(result);
-      setExpandedSectionKeys(getSectionKeys(result.sections));
+      setExpandedSectionKeys(getSectionTreeKeys(result.sections));
       setSelectedSection(findFirstSection(result.sections));
     } catch {
       if (!options.silent) {
@@ -615,35 +614,13 @@ const SectionsViewer = ({
     return <Empty description={parsed.parse_status === "uploaded" ? "该方法尚未解析。" : "No sections found in this result."} />;
   }
   return (
-    <Row gutter={[16, 16]}>
-      <Col xs={24} lg={10}>
-        <div className="plan-section-tree">
-          <Tree
-            blockNode
-            expandedKeys={expandedKeys}
-            onExpand={(keys) => onExpand(keys.map(String))}
-            selectedKeys={selectedSection ? [String(selectedSection.id)] : []}
-            treeData={toTreeData(parsed.sections)}
-            onSelect={(keys) => {
-              const key = keys[0];
-              onSelectSection(key ? findSection(parsed.sections, Number(key)) : null);
-            }}
-          />
-        </div>
-      </Col>
-      <Col xs={24} lg={14}>
-        <div className="plan-section-content">
-          {selectedSection ? (
-            <>
-              <Typography.Title level={4}>{selectedSection.title}</Typography.Title>
-              <Typography.Paragraph>{selectedSection.content || "No content found for this section."}</Typography.Paragraph>
-            </>
-          ) : (
-            <Empty description="Select a section" />
-          )}
-        </div>
-      </Col>
-    </Row>
+    <SectionTreeViewer
+      sections={parsed.sections}
+      selectedSection={selectedSection}
+      expandedKeys={expandedKeys}
+      onExpand={onExpand}
+      onSelectSection={onSelectSection}
+    />
   );
 };
 
@@ -665,31 +642,6 @@ export const ConstructionPlanReviewPage = () => (
     enableChapterProfiles
   />
 );
-
-const toTreeData = (sections: PlanSection[]): DataNode[] =>
-  sections.map((section) => ({
-    key: String(section.id),
-    title: section.title,
-    children: toTreeData(section.children),
-  }));
-
-const getSectionKeys = (sections: PlanSection[]): string[] =>
-  sections.flatMap((section) => [String(section.id), ...getSectionKeys(section.children)]);
-
-const findSection = (sections: PlanSection[], id: number): PlanSection | null => {
-  for (const section of sections) {
-    if (section.id === id) {
-      return section;
-    }
-    const child = findSection(section.children, id);
-    if (child) {
-      return child;
-    }
-  }
-  return null;
-};
-
-const findFirstSection = (sections: PlanSection[]): PlanSection | null => sections[0] ?? null;
 
 const findParseResult = (record: DocumentRecord, mode: SectionParseMode): ParseResultSummary | undefined =>
   record.parse_results.find((result) => result.section_parse_mode === mode);

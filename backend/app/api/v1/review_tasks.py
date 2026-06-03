@@ -118,4 +118,4 @@ async def run_checkpoint_review(
     service: Annotated[CheckpointExecutorService, Depends(get_checkpoint_executor_service)],
     db: Annotated[Session, Depends(get_db)],
 ) -> RunCheckpointReviewResponse:
-    return service.run_checkpoint_review(db, task_id)
+    return await service.run_checkpoint_review(db, task_id)
