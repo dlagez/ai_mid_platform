@@ -11,6 +11,7 @@ from app.api.v1 import (
     review_templates,
     standards,
     tasks,
+    toc_matching,
     utils,
 )
 from app.services.knowledge_service import KnowledgeService
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
     app.include_router(standards.clauses_router, prefix="/api/v1/standard-clauses", tags=["standards"])
     app.include_router(review_checkpoints.router, prefix="/api/v1/review-checkpoints", tags=["review-checkpoints"])
     app.include_router(review_tasks.router, prefix="/api/v1/review-tasks", tags=["review-tasks"])
+    app.include_router(toc_matching.router, prefix="/api/v1/toc-matching", tags=["toc-matching"])
     app.include_router(
         review_templates.router,
         prefix="/api/review-templates",
@@ -74,6 +76,7 @@ def create_app() -> FastAPI:
         include_in_schema=False,
     )
     app.include_router(review_tasks.router, prefix="/api/review-tasks", tags=["review-tasks"], include_in_schema=False)
+    app.include_router(toc_matching.router, prefix="/api/toc-matching", tags=["toc-matching"], include_in_schema=False)
 
     register_exception_handlers(app)
 

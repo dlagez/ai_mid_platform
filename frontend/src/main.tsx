@@ -54,6 +54,7 @@ import { CheckpointGenerationJobsPage } from "./pages/CheckpointGenerationJobs";
 import { ReviewCheckpointsPage } from "./pages/ReviewCheckpoints";
 import { ReviewTaskDetailPage } from "./pages/ReviewTaskDetail";
 import { ReviewTasksPage } from "./pages/ReviewTasks";
+import { TocMatchingPage } from "./pages/TocMatching";
 
 const resources = [
   {
@@ -114,6 +115,11 @@ const resources = [
     name: "review-checkpoints",
     list: "/review-checkpoints",
     meta: { label: "Review Checkpoints", icon: <NodeIndexOutlined />, parent: "construction-review" },
+  },
+  {
+    name: "toc-matching",
+    list: "/toc-matching",
+    meta: { label: "TOC Matching", icon: <NodeIndexOutlined />, parent: "construction-review" },
   },
   {
     name: "review-tasks",
@@ -190,6 +196,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                 <Route path="/standards/checkpoint-generation" element={<CheckpointGenerationJobsPage />} />
                 <Route path="/standards/:id/clauses" element={<StandardClausesPage />} />
                 <Route path="/review-checkpoints" element={<ReviewCheckpointsPage />} />
+                <Route path="/toc-matching" element={<TocMatchingPage />} />
                 <Route path="/review-tasks" element={<ReviewTasksPage />} />
                 <Route path="/review-tasks/:id" element={<ReviewTaskDetailPage />} />
                 <Route path="/utils/ppocr" element={<UtilsPPOcrPage />} />
