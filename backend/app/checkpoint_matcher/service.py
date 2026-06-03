@@ -16,10 +16,7 @@ from app.utils.exceptions import PlatformError
 
 
 SELECTED_THRESHOLD = 0.45
-MAX_SELECTED_PER_SECTION = 3
-RERANK_CANDIDATE_LIMIT_PER_SECTION = 12
 MIN_PRIMARY_OBJECT_MATCH = 0.5
-MIN_RERANK_SCORE = 0.55
 MIN_STRONG_SEMANTIC_WITHOUT_OBJECT = 0.35
 
 GENERIC_TERMS = {
@@ -363,67 +360,17 @@ def _select_section_checkpoint_keys(best_by_key: dict[tuple[int, int], dict[str,
             ),
             reverse=True,
         )
-        reranked = _rerank_section_candidates(ranked[:RERANK_CANDIDATE_LIMIT_PER_SECTION])
-        for key, scored in reranked[:MAX_SELECTED_PER_SECTION]:
+        for key, scored in ranked:
             if _is_selectable(scored):
                 selected.add(key)
     return selected
-
-
-def _rerank_section_candidates(
-    candidates: list[tuple[tuple[int, int], dict[str, Any]]],
-) -> list[tuple[tuple[int, int], dict[str, Any]]]:
-    reranked: list[tuple[tuple[int, int], dict[str, Any]]] = []
-    for key, scored in candidates:
-        dimensions = scored["dimensions"]
-        rerank_score = _local_rerank_score(scored)
-        dimensions["rerank_score"] = round(rerank_score, 2)
-        dimensions["rerank_decision"] = "accepted" if rerank_score >= MIN_RERANK_SCORE else "rejected"
-        scored["score"] = min(1.0, scored["score"] * 0.7 + rerank_score * 0.3)
-        scored["reason"] = _build_reason(dimensions)
-        reranked.append((key, scored))
-    return sorted(
-        reranked,
-        key=lambda item: (
-            item[1]["dimensions"].get("rerank_score", 0),
-            item[1]["score"],
-            -(item[0][1] or 0),
-        ),
-        reverse=True,
-    )
-
-
-def _local_rerank_score(scored: dict[str, Any]) -> float:
-    dimensions = scored["dimensions"]
-    object_match = float(dimensions.get("object_match") or 0)
-    context_match = float(dimensions.get("context_match") or 0)
-    semantic_similarity = float(dimensions.get("semantic_similarity") or 0)
-    object_pairs = dimensions.get("object_pairs") or []
-    context_pairs = dimensions.get("context_pairs") or []
-
-    strong_object_bonus = 0.15 if _has_specific_pairs(object_pairs) else 0.0
-    context_bonus = 0.08 if _has_specific_pairs(context_pairs) else 0.0
-    weak_penalty = 0.25 if not object_pairs else 0.0
-    return max(
-        0.0,
-        min(
-            1.0,
-            object_match * 0.72
-            + context_match * 0.10
-            + semantic_similarity * 0.18
-            + strong_object_bonus
-            + context_bonus
-            - weak_penalty,
-        ),
-    )
 
 
 def _is_selectable(scored: dict[str, Any]) -> bool:
     dimensions = scored["dimensions"]
     object_match = float(dimensions.get("object_match") or 0)
     semantic_similarity = float(dimensions.get("semantic_similarity") or 0)
-    rerank_score = float(dimensions.get("rerank_score") or 0)
-    if scored["score"] < SELECTED_THRESHOLD or rerank_score < MIN_RERANK_SCORE:
+    if scored["score"] < SELECTED_THRESHOLD:
         return False
     if object_match >= MIN_PRIMARY_OBJECT_MATCH and _has_specific_pairs(dimensions.get("object_pairs") or []):
         return True
@@ -436,14 +383,10 @@ def _build_reason(dimensions: dict[str, Any]) -> str:
         ("object_match", "对象"),
         ("context_match", "上下文"),
         ("semantic_similarity", "语义"),
-        ("rerank_score", "二阶段"),
     ]:
         value = float(dimensions.get(key) or 0)
         if value > 0:
             labels.append(f"{label}={value:.2f}")
-    decision = dimensions.get("rerank_decision")
-    if decision:
-        labels.append(f"rerank={decision}")
     return "；".join(labels) if labels else "未命中主要维度"
 
 
