@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any
 
 from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.models import (
@@ -191,8 +192,6 @@ class TocMatcherService:
             .order_by(TocMatchItem.id.asc())
             .all()
         )
-        standard_by_parent, plan_by_parent = self._get_review_context(db, job)
-
         wb = Workbook()
         ws = wb.active
         ws.title = "Review Issues"
@@ -205,8 +204,6 @@ class TocMatcherService:
                 continue
             plan_title = _format_plan_title(item.plan_section)
             standard_title = _format_standard_title(item.standard_section)
-            plan_content = _subtree_content(item.plan_section, plan_by_parent, "plan")
-            standard_content = _subtree_content(item.standard_section, standard_by_parent, "standard")
             for issue in issues:
                 if not isinstance(issue, dict):
                     continue
@@ -214,27 +211,20 @@ class TocMatcherService:
                     [
                         row_no,
                         _sanitize_cell(plan_title),
-                        _sanitize_cell(plan_content),
+                        _sanitize_cell(str(issue.get("plan_evidence") or "")),
                         _sanitize_cell(standard_title),
-                        _sanitize_cell(standard_content),
+                        _sanitize_cell(str(issue.get("standard_basis") or "")),
                         _sanitize_cell(str(issue.get("problem_description") or "")),
                         _sanitize_cell(str(issue.get("rectification_suggestion") or "")),
                     ]
                 )
                 row_no += 1
 
-        for column, width in {
-            "A": 8,
-            "B": 34,
-            "C": 80,
-            "D": 34,
-            "E": 80,
-            "F": 54,
-            "G": 54,
-        }.items():
-            ws.column_dimensions[column].width = width
+        _format_review_issue_worksheet(ws)
 
-        filename = f"toc_match_job_{job.id}_issues.xlsx"
+        plan_name = _filename_stem(job.plan_document.file_name if job.plan_document else f"方案{job.plan_document_id}")
+        standard_name = job.standard.standard_name if job.standard else f"规范{job.standard_id}"
+        filename = f"{_sanitize_filename(plan_name)}-{_sanitize_filename(standard_name)}-审查结果.xlsx"
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
@@ -811,6 +801,52 @@ def _truncate(text: str, limit: int) -> str:
 
 def _sanitize_cell(value: str) -> str:
     return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", str(value or ""))
+
+
+def _format_review_issue_worksheet(ws: Any) -> None:
+    for column, width in {
+        "A": 8,
+        "B": 30,
+        "C": 58,
+        "D": 30,
+        "E": 58,
+        "F": 54,
+        "G": 54,
+    }.items():
+        ws.column_dimensions[column].width = width
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+
+    header_fill = PatternFill("solid", fgColor="D9EAF7")
+    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    body_alignment = Alignment(vertical="top", wrap_text=True)
+
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+    ws.row_dimensions[1].height = 24
+
+    for row in ws.iter_rows(min_row=2):
+        max_lines = 1
+        for cell in row:
+            cell.alignment = body_alignment
+            value = str(cell.value or "")
+            column_width = ws.column_dimensions[cell.column_letter].width or 20
+            estimated_lines = max(1, sum(max(1, (len(line) // max(int(column_width), 1)) + 1) for line in value.splitlines()))
+            max_lines = max(max_lines, estimated_lines)
+        ws.row_dimensions[row[0].row].height = min(max_lines * 18, 180)
+
+
+def _sanitize_filename(value: str) -> str:
+    cleaned = re.sub(r'[\\/:*?"<>|\x00-\x1f\x7f]+', "_", str(value or "").strip())
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ._")
+    return cleaned[:120] or "未命名"
+
+
+def _filename_stem(value: str) -> str:
+    return re.sub(r"\.[^.\\/]+$", "", str(value or "").strip())
 
 
 def get_toc_matcher_service() -> Generator[TocMatcherService, None, None]:
