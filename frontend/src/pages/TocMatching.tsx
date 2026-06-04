@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button, Card, Form, Input, InputNumber, Select, Space, Table, Tag, Typography, message } from "antd";
 import type { TablePaginationConfig } from "antd";
-import { BranchesOutlined, EyeOutlined, ReloadOutlined, RobotOutlined, SearchOutlined } from "@ant-design/icons";
+import { AuditOutlined, BranchesOutlined, EyeOutlined, ReloadOutlined, RobotOutlined, SearchOutlined } from "@ant-design/icons";
 import { listDocuments, type DocumentRecord } from "../services/documentService";
 import { listStandards, type StandardDocument } from "../services/standardService";
 import {
   createTocMatchJob,
   getTocMatchJob,
   listTocMatchJobs,
+  reviewTocMatchItem,
+  reviewTocMatchJob,
   type TocMatchItem,
   type TocMatchJob,
   type TocMatchJobQuery,
@@ -34,6 +36,8 @@ export const TocMatchingPage = () => {
   const [total, setTotal] = useState(0);
   const [query, setQuery] = useState<TocMatchJobQuery>({ page: 1, page_size: 10 });
   const [loading, setLoading] = useState({ options: false, jobs: false, run: false, detail: false });
+  const [reviewJobId, setReviewJobId] = useState<number | null>(null);
+  const [reviewItemId, setReviewItemId] = useState<number | null>(null);
   const [runForm] = Form.useForm<RunFormValues>();
   const [filterForm] = Form.useForm<FilterValues>();
 
@@ -129,6 +133,38 @@ export const TocMatchingPage = () => {
     }
   };
 
+  const runJobReview = async (jobId: number) => {
+    setReviewJobId(jobId);
+    try {
+      const detail = await reviewTocMatchJob(jobId);
+      message.success(`Reviewed ${detail.job.reviewed_count} matched chapters.`);
+      setSelectedJob(detail.job);
+      setItems(detail.items);
+      await loadJobs(query);
+    } catch {
+      message.error("Failed to review matched chapters.");
+    } finally {
+      setReviewJobId(null);
+    }
+  };
+
+  const runItemReview = async (item: TocMatchItem) => {
+    setReviewItemId(item.id);
+    try {
+      const reviewed = await reviewTocMatchItem(item.id);
+      message.success(`Reviewed match item #${reviewed.id}.`);
+      setItems((current) => current.map((record) => (record.id === reviewed.id ? reviewed : record)));
+      if (selectedJob) {
+        await loadDetail(selectedJob.id);
+        await loadJobs(query);
+      }
+    } catch {
+      message.error("Failed to review this matched chapter.");
+    } finally {
+      setReviewItemId(null);
+    }
+  };
+
   const applyFilter = async () => {
     const values = filterForm.getFieldsValue();
     await loadJobs({ ...values, page: 1, page_size: query.page_size ?? 10 }, true);
@@ -212,11 +248,22 @@ export const TocMatchingPage = () => {
             { title: "Created At", dataIndex: "created_at", width: 180, render: formatDateTime },
             {
               title: "Actions",
-              width: 100,
+              width: 210,
               render: (_, record) => (
-                <Button size="small" icon={<EyeOutlined />} onClick={() => void loadDetail(record.id)}>
-                  View
-                </Button>
+                <Space>
+                  <Button size="small" icon={<EyeOutlined />} onClick={() => void loadDetail(record.id)}>
+                    View
+                  </Button>
+                  <Button
+                    size="small"
+                    icon={<AuditOutlined />}
+                    loading={reviewJobId === record.id}
+                    disabled={record.match_count === 0}
+                    onClick={() => void runJobReview(record.id)}
+                  >
+                    Re-review All
+                  </Button>
+                </Space>
               ),
             },
           ]}
@@ -230,6 +277,19 @@ export const TocMatchingPage = () => {
             <span>Matching Result</span>
             {selectedJob ? <Tag>Job #{selectedJob.id}</Tag> : null}
           </Space>
+        }
+        extra={
+          selectedJob ? (
+            <Button
+              size="small"
+              icon={<AuditOutlined />}
+              loading={reviewJobId === selectedJob.id}
+              disabled={!items.length}
+              onClick={() => void runJobReview(selectedJob.id)}
+            >
+              Re-review All
+            </Button>
+          ) : null
         }
       >
         <Table<TocMatchItem>
@@ -284,6 +344,20 @@ export const TocMatchingPage = () => {
               ),
             },
             { title: "Reason", dataIndex: "reason", ellipsis: true },
+            {
+              title: "Actions",
+              width: 120,
+              render: (_, record) => (
+                <Button
+                  size="small"
+                  icon={<AuditOutlined />}
+                  loading={reviewItemId === record.id}
+                  onClick={() => void runItemReview(record)}
+                >
+                  {isReviewed(record) ? "Re-review" : "Review"}
+                </Button>
+              ),
+            },
           ]}
         />
       </Card>
@@ -293,18 +367,21 @@ export const TocMatchingPage = () => {
 
 const statusOptions = [
   { value: "running", label: "running" },
+  { value: "reviewing", label: "reviewing" },
   { value: "success", label: "success" },
   { value: "failed", label: "failed" },
 ];
 
 const StatusTag = ({ status }: { status: string }) => {
-  const color = status === "success" ? "green" : status === "failed" ? "red" : "processing";
+  const color = status === "success" ? "green" : status === "failed" ? "red" : status === "pending" ? "gold" : "processing";
   return <Tag color={color}>{status}</Tag>;
 };
 
 const formatDateTime = (value: string | null) => (value ? new Date(value).toLocaleString() : "-");
 
 const formatNode = (no: string | null, title: string | null) => [no, title].filter(Boolean).join(" ") || "-";
+
+const isReviewed = (record: TocMatchItem) => record.review_status === "success" || record.review_status === "failed";
 
 const IssueList = ({ record }: { record: TocMatchItem }) => {
   if (record.review_error) {

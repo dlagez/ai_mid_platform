@@ -13,6 +13,10 @@ class TocMatchCreateRequest(BaseModel):
     model: str | None = None
 
 
+class TocReviewRequest(BaseModel):
+    model: str | None = None
+
+
 class TocMatchJobRead(BaseModel):
     id: int
     plan_document_id: int

@@ -7,7 +7,14 @@ from sqlalchemy.orm import Session
 
 from app.db.models import TocMatchItem
 from app.db.session import get_db
-from app.toc_matcher.schemas import TocMatchCreateRequest, TocMatchJobDetail, TocMatchJobList, TocMatchJobRead, TocMatchItemRead
+from app.toc_matcher.schemas import (
+    TocMatchCreateRequest,
+    TocMatchJobDetail,
+    TocMatchJobList,
+    TocMatchJobRead,
+    TocMatchItemRead,
+    TocReviewRequest,
+)
 from app.toc_matcher.service import TocMatcherService, get_toc_matcher_service
 from app.utils.jwt import CurrentUser, get_current_user
 
@@ -64,6 +71,31 @@ async def get_toc_match_job(
 ) -> TocMatchJobDetail:
     job, items = service.get_job_detail(db, job_id)
     return TocMatchJobDetail(job=job, items=[_to_item_read(item) for item in items])
+
+
+@router.post("/jobs/{job_id}/review", response_model=TocMatchJobDetail)
+async def review_toc_match_job(
+    job_id: int,
+    payload: TocReviewRequest,
+    _: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[TocMatcherService, Depends(get_toc_matcher_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> TocMatchJobDetail:
+    job = await service.review_job(db, job_id, model=payload.model)
+    _, items = service.get_job_detail(db, job.id)
+    return TocMatchJobDetail(job=job, items=[_to_item_read(item) for item in items])
+
+
+@router.post("/items/{item_id}/review", response_model=TocMatchItemRead)
+async def review_toc_match_item(
+    item_id: int,
+    payload: TocReviewRequest,
+    _: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[TocMatcherService, Depends(get_toc_matcher_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> TocMatchItemRead:
+    item = await service.review_item(db, item_id, model=payload.model)
+    return _to_item_read(item)
 
 
 def _to_item_read(item: TocMatchItem) -> TocMatchItemRead:

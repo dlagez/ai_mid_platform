@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import io
 import re
 from collections.abc import Generator
 from datetime import datetime
 from typing import Any
 
+from openpyxl import Workbook
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.models import (
@@ -179,6 +181,137 @@ class TocMatcherService:
             .all()
         )
         return job, items
+
+    def export_review_issues_to_excel(self, db: Session, job_id: int) -> tuple[io.BytesIO, str]:
+        job, _ = self.get_job_detail(db, job_id)
+        items = (
+            db.query(TocMatchItem)
+            .options(joinedload(TocMatchItem.standard_section), joinedload(TocMatchItem.plan_section))
+            .filter(TocMatchItem.job_id == job.id)
+            .order_by(TocMatchItem.id.asc())
+            .all()
+        )
+        standard_by_parent, plan_by_parent = self._get_review_context(db, job)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Review Issues"
+        ws.append(["序号", "方案标题", "方案内容", "标准标题", "标准内容", "问题", "解决方案"])
+
+        row_no = 1
+        for item in items:
+            issues = item.review_issues or []
+            if not issues:
+                continue
+            plan_title = _format_plan_title(item.plan_section)
+            standard_title = _format_standard_title(item.standard_section)
+            plan_content = _subtree_content(item.plan_section, plan_by_parent, "plan")
+            standard_content = _subtree_content(item.standard_section, standard_by_parent, "standard")
+            for issue in issues:
+                if not isinstance(issue, dict):
+                    continue
+                ws.append(
+                    [
+                        row_no,
+                        _sanitize_cell(plan_title),
+                        _sanitize_cell(plan_content),
+                        _sanitize_cell(standard_title),
+                        _sanitize_cell(standard_content),
+                        _sanitize_cell(str(issue.get("problem_description") or "")),
+                        _sanitize_cell(str(issue.get("rectification_suggestion") or "")),
+                    ]
+                )
+                row_no += 1
+
+        for column, width in {
+            "A": 8,
+            "B": 34,
+            "C": 80,
+            "D": 34,
+            "E": 80,
+            "F": 54,
+            "G": 54,
+        }.items():
+            ws.column_dimensions[column].width = width
+
+        filename = f"toc_match_job_{job.id}_issues.xlsx"
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        return buffer, filename
+
+    async def review_job(self, db: Session, job_id: int, *, model: str | None = None) -> TocMatchJob:
+        job, _ = self.get_job_detail(db, job_id)
+        job.status = "reviewing"
+        job.error_message = None
+        job.completed_at = None
+        db.commit()
+        db.refresh(job)
+
+        try:
+            await self._review_matches(db, job, model=model or job.model)
+            self._refresh_review_counts(db, job)
+            job.status = "success"
+            job.error_message = None
+            job.completed_at = datetime.utcnow()
+            db.commit()
+            db.refresh(job)
+            return job
+        except Exception as exc:
+            db.rollback()
+            failed = db.query(TocMatchJob).filter(TocMatchJob.id == job_id).first()
+            if failed:
+                failed.status = "failed"
+                failed.error_message = str(exc)
+                failed.completed_at = datetime.utcnow()
+                db.commit()
+                db.refresh(failed)
+                return failed
+            raise
+
+    async def review_item(self, db: Session, item_id: int, *, model: str | None = None) -> TocMatchItem:
+        item = (
+            db.query(TocMatchItem)
+            .options(
+                joinedload(TocMatchItem.job).joinedload(TocMatchJob.standard),
+                joinedload(TocMatchItem.standard_section),
+                joinedload(TocMatchItem.plan_section),
+            )
+            .filter(TocMatchItem.id == item_id)
+            .first()
+        )
+        if not item:
+            raise PlatformError(f"TOC match item id={item_id} not found", status_code=404)
+        job = item.job
+        job.status = "reviewing"
+        job.error_message = None
+        item.review_status = "running"
+        item.review_error = None
+        db.commit()
+        db.refresh(item)
+
+        standard_by_parent, plan_by_parent = self._get_review_context(db, job)
+        await self._review_single_item(
+            db,
+            job,
+            item,
+            standard_by_parent=standard_by_parent,
+            plan_by_parent=plan_by_parent,
+            model=model or job.model,
+        )
+        self._refresh_review_counts(db, job)
+        job.status = "success"
+        job.completed_at = datetime.utcnow()
+        db.commit()
+        refreshed = (
+            db.query(TocMatchItem)
+            .options(joinedload(TocMatchItem.standard_section), joinedload(TocMatchItem.plan_section))
+            .filter(TocMatchItem.id == item_id)
+            .first()
+        )
+        if not refreshed:
+            raise PlatformError(f"TOC match item id={item_id} not found", status_code=404)
+        return refreshed
 
     def _refresh_for_review(self, db: Session, job: TocMatchJob) -> None:
         db.refresh(job)
@@ -354,6 +487,31 @@ class TocMatcherService:
             db.flush()
             return
 
+        standard_by_parent, plan_by_parent = self._get_review_context(db, job)
+
+        reviewed_count = 0
+        issue_count = 0
+        for item in items:
+            await self._review_single_item(
+                db,
+                job,
+                item,
+                standard_by_parent=standard_by_parent,
+                plan_by_parent=plan_by_parent,
+                model=model,
+            )
+            if item.review_status == "success":
+                reviewed_count += 1
+                issue_count += len(item.review_issues or [])
+            job.reviewed_count = reviewed_count
+            job.issue_count = issue_count
+            db.flush()
+
+    def _get_review_context(
+        self,
+        db: Session,
+        job: TocMatchJob,
+    ) -> tuple[dict[int | None, list[ParseResultSection]], dict[int | None, list[PlanSection]]]:
         standard_sections = self._get_standard_sections(db, job.standard)
         plan_sections = (
             db.query(PlanSection)
@@ -364,39 +522,48 @@ class TocMatcherService:
             .order_by(PlanSection.sort_no.asc(), PlanSection.id.asc())
             .all()
         )
-        standard_by_parent = _group_by_parent(standard_sections)
-        plan_by_parent = _group_by_parent(plan_sections)
+        return _group_by_parent(standard_sections), _group_by_parent(plan_sections)
 
-        reviewed_count = 0
-        issue_count = 0
-        for item in items:
-            try:
-                item.review_status = "running"
-                db.flush()
-                standard_content = _subtree_content(item.standard_section, standard_by_parent, "standard")
-                plan_content = _subtree_content(item.plan_section, plan_by_parent, "plan")
-                response = await self._call_review_llm(
-                    item,
-                    standard_name=job.standard.standard_name if job.standard else "",
-                    standard_content=standard_content,
-                    plan_content=plan_content,
-                    model=model,
-                )
-                item.raw_review_response = response
-                issues = _extract_review_issues(response)
-                item.review_issues = issues
-                item.review_status = "success"
-                item.review_error = None
-                item.reviewed_at = datetime.utcnow()
-                reviewed_count += 1
-                issue_count += len(issues)
-            except Exception as exc:
-                item.review_status = "failed"
-                item.review_error = str(exc)
-                item.reviewed_at = datetime.utcnow()
-            job.reviewed_count = reviewed_count
-            job.issue_count = issue_count
+    async def _review_single_item(
+        self,
+        db: Session,
+        job: TocMatchJob,
+        item: TocMatchItem,
+        *,
+        standard_by_parent: dict[int | None, list[ParseResultSection]],
+        plan_by_parent: dict[int | None, list[PlanSection]],
+        model: str | None = None,
+    ) -> None:
+        try:
+            item.review_status = "running"
+            item.review_error = None
             db.flush()
+            standard_content = _subtree_content(item.standard_section, standard_by_parent, "standard")
+            plan_content = _subtree_content(item.plan_section, plan_by_parent, "plan")
+            response = await self._call_review_llm(
+                item,
+                standard_name=job.standard.standard_name if job.standard else "",
+                standard_content=standard_content,
+                plan_content=plan_content,
+                model=model,
+            )
+            item.raw_review_response = response
+            issues = _extract_review_issues(response)
+            item.review_issues = issues
+            item.review_status = "success"
+            item.review_error = None
+            item.reviewed_at = datetime.utcnow()
+        except Exception as exc:
+            item.review_status = "failed"
+            item.review_error = str(exc)
+            item.reviewed_at = datetime.utcnow()
+        db.flush()
+
+    def _refresh_review_counts(self, db: Session, job: TocMatchJob) -> None:
+        items = db.query(TocMatchItem).filter(TocMatchItem.job_id == job.id).all()
+        job.reviewed_count = sum(1 for item in items if item.review_status == "success")
+        job.issue_count = sum(len(item.review_issues or []) for item in items if item.review_status == "success")
+        db.flush()
 
     async def _call_review_llm(
         self,
@@ -640,6 +807,10 @@ def _truncate(text: str, limit: int) -> str:
     if len(value) <= limit:
         return value
     return value[:limit] + "\n...[内容已截断]"
+
+
+def _sanitize_cell(value: str) -> str:
+    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", str(value or ""))
 
 
 def get_toc_matcher_service() -> Generator[TocMatcherService, None, None]:

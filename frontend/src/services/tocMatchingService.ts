@@ -89,3 +89,13 @@ export const getTocMatchJob = async (jobId: number) => {
   const { data } = await apiClient.get<TocMatchJobDetail>(`/toc-matching/jobs/${jobId}`);
   return data;
 };
+
+export const reviewTocMatchJob = async (jobId: number, model?: string | null) => {
+  const { data } = await apiClient.post<TocMatchJobDetail>(`/toc-matching/jobs/${jobId}/review`, { model: model || null });
+  return data;
+};
+
+export const reviewTocMatchItem = async (itemId: number, model?: string | null) => {
+  const { data } = await apiClient.post<TocMatchItem>(`/toc-matching/items/${itemId}/review`, { model: model || null });
+  return data;
+};
