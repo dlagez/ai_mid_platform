@@ -167,9 +167,10 @@ class PPOcrPdfService:
         db: Session,
         job_id: int,
         *,
-        strategy: str = "decimal_number",
+        strategy: str = "ppocr_toc_outline",
         custom_patterns: dict[int, str] | None = None,
         use_toc_outline: bool = True,
+        secondary_decimal_split: bool = False,
     ) -> list[ParseResultSection]:
         job = self.get_job(db, job_id)
         if not job:
@@ -184,6 +185,7 @@ class PPOcrPdfService:
             strategy=strategy,
             custom_patterns=custom_patterns,
             use_toc_outline=use_toc_outline,
+            secondary_decimal_split=secondary_decimal_split,
         )
         StandardService().sync_clauses_from_parse_result_for_document(db, job.result.id, sections)
         db.commit()

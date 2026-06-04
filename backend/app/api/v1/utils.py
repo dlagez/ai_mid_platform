@@ -161,8 +161,9 @@ ParseResultSectionItem.model_rebuild()
 
 
 class SectionRebuildRequest(BaseModel):
-    strategy: str = "decimal_number"
+    strategy: str = "ppocr_toc_outline"
     use_toc_outline: bool = True
+    secondary_decimal_split: bool = False
     level1_pattern: str | None = None
     level2_pattern: str | None = None
     level3_pattern: str | None = None
@@ -324,6 +325,7 @@ async def rebuild_ppocr_pdf_sections(
             strategy=strategy,
             custom_patterns=custom_patterns,
             use_toc_outline=request.use_toc_outline,
+            secondary_decimal_split=request.secondary_decimal_split,
         )
     except FileNotFoundError as exc:
         raise PlatformError(str(exc), status_code=404) from exc

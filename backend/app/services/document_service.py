@@ -365,11 +365,12 @@ class DocumentService:
         section_parse_mode: str | None,
     ) -> list[ParsedSection]:
         suffix = os.path.splitext(record.file_name)[1].lower()
-        if suffix == ".docx":
+        mode = resolve_section_parse_mode(section_parse_mode)
+        if suffix == ".docx" or mode == "ppocr_toc_outline":
             return parse_construction_plan_sections(
                 file_path,
                 record.file_name,
-                section_parse_mode=section_parse_mode,
+                section_parse_mode=mode,
                 document_type=record.document_type,
             )
         parser = get_parser(parser_provider, record.file_name)

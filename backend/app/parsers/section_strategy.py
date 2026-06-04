@@ -11,6 +11,7 @@ SECTION_REBUILD_STRATEGIES = {
     "markdown_heading",
     "decimal_number",
     "chinese_number",
+    "ppocr_toc_outline",
     "custom",
 }
 
@@ -33,7 +34,7 @@ class MarkdownHeadingStrategy:
     name = "markdown_heading"
 
     def detect_heading(self, line: str) -> HeadingMatch | None:
-        match = re.match(r"^(#{1,3})\s*(.+?)\s*#*$", line)
+        match = re.match(r"^(#+)\s*(.+?)\s*#*$", line)
         if not match:
             return None
         title = match.group(2).strip()
@@ -46,30 +47,15 @@ class DecimalNumberStrategy:
     name = "decimal_number"
 
     def detect_heading(self, line: str) -> HeadingMatch | None:
-        appendix = re.match(r"^\s*(附录\s*[A-Za-zＡ-Ｚ])\s+(.+)$", line)
-        if appendix and _looks_like_title(line):
-            section_no = re.sub(r"\s+", "", appendix.group(1))
-            return HeadingMatch(level=1, title=line.strip(), section_no=section_no)
-
-        special = re.match(r"^\s*(本标准用词说明|本规范用词说明|引用标准名录)\s*(.*)$", line)
-        if special and _looks_like_title(line):
-            return HeadingMatch(level=1, title=line.strip(), section_no=None)
-
         match = re.match(
-            r"^\s*(\d{1,2}(?:\s*[.．]\s*\d{1,2}){1,2})(?=\s|[.．、~～\u4e00-\u9fff])\s*[.．、]?\s*(.+)$",
+            r"^\s*(\d{1,2}(?:\s*[.．]\s*\d{1,2}){0,2})(?:[、]|[.．](?!\s*\d)|\s+)(.+)$",
             line,
         )
-        if not match:
-            match = re.match(r"^\s*(\d{1,2})(?:[.．、]|\s+)\s*(.+)$", line)
         if not match:
             return None
 
         section_no = _normalize_decimal_section_no(match.group(1))
         level = section_no.count(".") + 1
-        if level > 3:
-            return None
-        if level < 3 and not _looks_like_title(line):
-            return None
         return HeadingMatch(level=level, title=line.strip(), section_no=section_no)
 
 
@@ -148,18 +134,170 @@ def parse_sections_with_strategy(
     strategy: str = "decimal_number",
     custom_patterns: dict[int, str] | None = None,
     use_toc_outline: bool = False,
+    secondary_decimal_split: bool = False,
 ) -> list[ParsedSection]:
+    normalized_strategy = (strategy or "decimal_number").strip().lower()
+    if normalized_strategy == "ppocr_toc_outline":
+        sections = parse_sections_from_toc_keyword_outline(
+            markdown,
+            strategy="auto",
+            custom_patterns=custom_patterns,
+        )
+        sections = sections or _parse_sections_linear(markdown, AutoSectionStrategy())
+        return refine_sections_with_decimal_subheadings(sections) if secondary_decimal_split else sections
+
     parser = get_section_rebuild_strategy(strategy, custom_patterns)
     if use_toc_outline:
         sections = _parse_sections_from_toc_outline(markdown, parser)
         if sections:
-            return sections
+            return refine_sections_with_decimal_subheadings(sections) if secondary_decimal_split else sections
 
     # Strip TOC region for linear scan to avoid duplicate sections
     if not use_toc_outline and strategy == "auto":
         markdown = _strip_toc_region(markdown)
 
-    return _parse_sections_linear(markdown, parser)
+    sections = _parse_sections_linear(markdown, parser)
+    return refine_sections_with_decimal_subheadings(sections) if secondary_decimal_split else sections
+
+
+def parse_sections_from_toc_keyword_outline(
+    markdown: str,
+    strategy: str = "auto",
+    custom_patterns: dict[int, str] | None = None,
+) -> list[ParsedSection]:
+    """Build a tree from the TOC/contents region and fill bodies from matching headings."""
+    parser = get_section_rebuild_strategy(strategy, custom_patterns)
+    lines = [clean_section_line(line) for line in markdown.splitlines()]
+    lines = [line for line in lines if line]
+    outline_parser = AutoSectionStrategy()
+
+    for toc_index, line in enumerate(lines):
+        if not _is_toc_label(line):
+            continue
+
+        outline_rows, outline_end = _collect_toc_keyword_outline_rows(lines, toc_index, outline_parser)
+        if not outline_rows:
+            continue
+
+        roots, flat_sections = _build_tree_from_heading_rows(outline_rows)
+        body_headings = _collect_body_headings_for_outline(lines, outline_end, parser, outline_rows)
+        _fill_outline_content_from_body(lines, body_headings, flat_sections, outline_end)
+        return roots
+
+    return []
+
+
+def _collect_toc_keyword_outline_rows(
+    lines: list[str],
+    toc_index: int,
+    parser: SectionRebuildStrategy,
+) -> tuple[list[tuple[int, str, HeadingMatch, str]], int]:
+    rows: list[tuple[int, str, HeadingMatch, str]] = []
+    seen_keys: set[str] = set()
+    blank_or_noise_count = 0
+    last_heading_index = toc_index
+
+    for index in range(toc_index + 1, len(lines)):
+        line = lines[index]
+        if _is_contents_label(line):
+            break
+        if _is_toc_label(line):
+            if rows:
+                break
+            continue
+
+        heading = _detect_heading(parser, line)
+        if heading:
+            heading = _clean_toc_heading(heading)
+            key = _heading_key(heading)
+            if rows and key in seen_keys:
+                return rows, index
+            rows.append((index, line, heading, key))
+            seen_keys.add(key)
+            blank_or_noise_count = 0
+            last_heading_index = index
+            continue
+
+        if rows:
+            blank_or_noise_count += 1
+            if blank_or_noise_count >= 8:
+                break
+
+    return rows, last_heading_index + 1
+
+
+def refine_sections_with_decimal_subheadings(sections: list[ParsedSection]) -> list[ParsedSection]:
+    for section in sections:
+        _refine_section_with_decimal_subheadings(section)
+    return sections
+
+
+def _refine_section_with_decimal_subheadings(section: ParsedSection) -> None:
+    parent_prefix, parsed_children = _split_content_by_decimal_subheadings(section.content)
+    if parsed_children:
+        existing_keys = {_section_identity_key(child) for child in section.children}
+        section.content = parent_prefix
+        for child in parsed_children:
+            key = _section_identity_key(child)
+            if key not in existing_keys:
+                section.children.append(child)
+                existing_keys.add(key)
+
+    for child in section.children:
+        _refine_section_with_decimal_subheadings(child)
+
+
+def _split_content_by_decimal_subheadings(content: str) -> tuple[str, list[ParsedSection]]:
+    roots: list[ParsedSection] = []
+    stack: list[ParsedSection] = []
+    prefix_lines: list[str] = []
+
+    for raw_line in content.splitlines():
+        line = clean_section_line(raw_line)
+        if not line:
+            continue
+
+        heading = _detect_decimal_subheading(line)
+        if heading:
+            section = ParsedSection(
+                level=heading.level,
+                title=heading.title,
+                section_no=heading.section_no,
+            )
+            while stack and stack[-1].level >= section.level:
+                stack.pop()
+            if stack:
+                stack[-1].children.append(section)
+            else:
+                roots.append(section)
+            stack.append(section)
+            continue
+
+        if stack:
+            current = stack[-1]
+            current.content = f"{current.content}\n{line}".strip() if current.content else line
+        else:
+            prefix_lines.append(line)
+
+    return "\n".join(prefix_lines).strip(), roots
+
+
+def _detect_decimal_subheading(line: str) -> HeadingMatch | None:
+    line = _strip_markdown_heading_prefix(line)
+    match = re.match(
+        r"^\s*(\d{1,2}(?:\s*[.．]\s*\d{1,2}){2,})\s*(?:[、]|[.．](?!\s*\d)|\s+)?\s*(.+)$",
+        line,
+    )
+    if not match:
+        return None
+    section_no = _normalize_decimal_section_no(match.group(1))
+    return HeadingMatch(level=section_no.count(".") + 1, title=line.strip(), section_no=section_no)
+
+
+def _section_identity_key(section: ParsedSection) -> str:
+    if section.section_no:
+        return f"{section.section_no}:{_normalize_heading_text(_remove_section_no(section.title, section.section_no))}"
+    return _normalize_heading_text(section.title)
 
 
 def _parse_sections_linear(markdown: str, parser: SectionRebuildStrategy) -> list[ParsedSection]:
@@ -174,14 +312,6 @@ def _parse_sections_linear(markdown: str, parser: SectionRebuildStrategy) -> lis
 
         heading = _detect_heading(parser, line)
         if heading:
-            if not _is_plausible_heading(heading, stack, roots):
-                if stack:
-                    current = stack[-1]
-                    current.content = f"{current.content}\n{line}".strip() if current.content else line
-                else:
-                    body_lines_before_first_heading.append(line)
-                continue
-
             section = ParsedSection(
                 level=heading.level,
                 title=heading.title,
@@ -421,6 +551,35 @@ def _collect_body_headings(
     return rows
 
 
+def _collect_body_headings_for_outline(
+    lines: list[str],
+    start_index: int,
+    parser: SectionRebuildStrategy,
+    outline_rows: list[tuple[int, str, HeadingMatch, str]],
+) -> list[tuple[int, str, HeadingMatch, str]]:
+    rows: list[tuple[int, str, HeadingMatch, str]] = []
+    fallback_parser = AutoSectionStrategy()
+    outline_key_aliases: dict[str, str] = {}
+
+    for _, _, heading, key in outline_rows:
+        for alias in _heading_match_keys(heading):
+            outline_key_aliases.setdefault(alias, key)
+
+    for index in range(start_index, len(lines)):
+        line = lines[index]
+        if _is_toc_label(line) or _is_contents_label(line):
+            continue
+        heading = _detect_heading(parser, line) or _detect_heading(fallback_parser, line)
+        if not heading:
+            continue
+        for alias in _heading_match_keys(heading):
+            outline_key = outline_key_aliases.get(alias)
+            if outline_key:
+                rows.append((index, line, heading, outline_key))
+                break
+    return rows
+
+
 def _strip_markdown_heading_prefix(line: str) -> str:
     return re.sub(r"^#+\s*", "", line).strip()
 
@@ -524,6 +683,15 @@ def _heading_key(heading: HeadingMatch) -> str:
     if heading.section_no:
         return f"{heading.section_no}:{_normalize_heading_text(_remove_section_no(title, heading.section_no))}"
     return title
+
+
+def _heading_match_keys(heading: HeadingMatch) -> set[str]:
+    key = _heading_key(heading)
+    title = _normalize_heading_text(heading.title)
+    keys = {key, title}
+    if heading.section_no:
+        keys.add(_normalize_heading_text(_remove_section_no(title, heading.section_no)))
+    return {item for item in keys if item}
 
 
 def _normalize_heading_text(text: str) -> str:
@@ -639,61 +807,8 @@ def _level_from_section_no(section_no: str | None) -> int | None:
     return None
 
 
-def _is_plausible_heading(
-    heading: HeadingMatch,
-    stack: list[ParsedSection],
-    roots: list[ParsedSection],
-) -> bool:
-    section_no = heading.section_no
-    if not section_no or not re.match(r"^\d{1,2}(?:\.\d{1,2}){0,2}$", section_no):
-        return True
-
-    parts = section_no.split(".")
-    if heading.level != len(parts):
-        return False
-
-    if heading.level == 1:
-        if stack and stack[0].section_no is None:
-            return False
-        if stack and stack[0].section_no == section_no:
-            return False
-        last_root_no = _last_numeric_root_no(roots)
-        current_root_no = int(parts[0])
-        if last_root_no is not None and current_root_no > last_root_no + 1:
-            return False
-        if stack and _single_number_item_like_heading(heading):
-            return False
-        return last_root_no is None or current_root_no >= last_root_no
-
-    root_no = parts[0]
-    if stack and stack[0].section_no and stack[0].section_no.split(".", 1)[0] != root_no:
-        return False
-
-    parent_no = ".".join(parts[:-1])
-    if any(section.section_no == parent_no for section in stack):
-        return True
-    if heading.level == 3 and stack and stack[0].section_no == root_no:
-        return True
-    return False
-
-
-def _last_numeric_root_no(roots: list[ParsedSection]) -> int | None:
-    for section in reversed(roots):
-        if section.section_no and re.match(r"^\d{1,2}$", section.section_no):
-            return int(section.section_no)
-    return None
-
-
 def _looks_like_title(line: str, max_length: int = 120) -> bool:
     text = line.strip()
     if not text or len(text) > max_length:
         return False
     return not re.search(r"[。！？；;]$", text)
-
-
-def _single_number_item_like_heading(heading: HeadingMatch) -> bool:
-    section_no = heading.section_no
-    if not section_no or not re.match(r"^\d{1,2}$", section_no):
-        return False
-    title_text = _remove_section_no(_strip_markdown_heading_prefix(heading.title), section_no)
-    return bool(re.search(r"[:：]", title_text))

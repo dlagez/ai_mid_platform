@@ -126,14 +126,10 @@ export type PPOcrPdfSectionsResult = {
   flat_sections: PPOcrResultSectionFlat[];
 };
 
-export type SectionRebuildStrategy = "markdown_heading" | "decimal_number" | "chinese_number" | "custom";
-
 export type SectionRebuildRequest = {
-  strategy: SectionRebuildStrategy;
-  use_toc_outline: boolean;
-  level1_pattern?: string | null;
-  level2_pattern?: string | null;
-  level3_pattern?: string | null;
+  strategy?: string;
+  use_toc_outline?: boolean;
+  secondary_decimal_split?: boolean;
 };
 
 export const parsePPOcrFile = async (file: File) => {

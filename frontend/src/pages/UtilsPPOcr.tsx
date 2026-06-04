@@ -4,12 +4,9 @@ import {
   Card,
   Col,
   Empty,
-  Input,
   Progress,
   Row,
-  Select,
   Space,
-  Switch,
   Table,
   Tag,
   Typography,
@@ -42,10 +39,7 @@ import {
   type PPOcrPdfSectionsResult,
   type PPOcrResultSection,
   type PPOcrResultSectionFlat,
-  type SectionRebuildStrategy,
 } from "../services/utilsService";
-
-const { TextArea } = Input;
 
 export const UtilsPPOcrPage = () => {
   const [jobs, setJobs] = useState<PPOcrPdfJob[]>([]);
@@ -56,13 +50,6 @@ export const UtilsPPOcrPage = () => {
   const [sectionsResult, setSectionsResult] = useState<PPOcrPdfSectionsResult | null>(null);
   const [selectedSection, setSelectedSection] = useState<PPOcrResultSection | null>(null);
   const [expandedSectionKeys, setExpandedSectionKeys] = useState<string[]>([]);
-  const [sectionStrategy, setSectionStrategy] = useState<SectionRebuildStrategy>("decimal_number");
-  const [useTocOutline, setUseTocOutline] = useState(true);
-  const [customPatterns, setCustomPatterns] = useState({
-    level1_pattern: "^(?P<section_no>[一二三四五六七八九十百千万零〇两]+)[、.．]\\s*(?P<title>.+)$",
-    level2_pattern: "^[（(](?P<section_no>[一二三四五六七八九十百千万零〇两]+)[）)]\\s*(?P<title>.+)$",
-    level3_pattern: "^(?P<section_no>\\d{1,2})(?:[.．、]|\\s+)\\s*(?P<title>.+)$",
-  });
   const [markdown, setMarkdown] = useState("");
   const [loading, setLoading] = useState({
     jobs: false,
@@ -215,7 +202,7 @@ export const UtilsPPOcrPage = () => {
     }
   };
 
-  const handleRebuildSections = async () => {
+  const handleRebuildSections = async (secondaryDecimalSplit = false) => {
     const jobId = selectedDetail?.job.id;
     if (!jobId) {
       return;
@@ -223,19 +210,17 @@ export const UtilsPPOcrPage = () => {
     setLoading((s) => ({ ...s, rebuildSections: true }));
     try {
       const result = await rebuildPPOcrPdfSections(jobId, {
-        strategy: sectionStrategy,
-        use_toc_outline: useTocOutline,
-        level1_pattern: sectionStrategy === "custom" ? customPatterns.level1_pattern : null,
-        level2_pattern: sectionStrategy === "custom" ? customPatterns.level2_pattern : null,
-        level3_pattern: sectionStrategy === "custom" ? customPatterns.level3_pattern : null,
+        strategy: "ppocr_toc_outline",
+        use_toc_outline: true,
+        secondary_decimal_split: secondaryDecimalSplit,
       });
       const nextTree = buildSectionTree(result.flat_sections, result.sections);
       setSectionsResult(result);
       setExpandedSectionKeys(getSectionTreeKeys(nextTree));
       setSelectedSection(findFirstSection(nextTree));
-      message.success("Document sections rebuilt.");
-    } catch {
-      message.error("Failed to rebuild document sections.");
+      message.success(secondaryDecimalSplit ? "三级目录解析完成。" : "目录解析完成。");
+    } catch (error: unknown) {
+      message.error(getErrorDetail(error) ?? "Failed to rebuild document sections.");
     } finally {
       setLoading((s) => ({ ...s, rebuildSections: false }));
     }
@@ -471,9 +456,16 @@ export const UtilsPPOcrPage = () => {
                     size="small"
                     icon={<ReloadOutlined />}
                     loading={loading.rebuildSections}
-                    onClick={() => void handleRebuildSections()}
+                    onClick={() => void handleRebuildSections(false)}
                   >
-                    Rebuild
+                    目录解析
+                  </Button>
+                  <Button
+                    size="small"
+                    loading={loading.rebuildSections}
+                    onClick={() => void handleRebuildSections(true)}
+                  >
+                    三级目录解析
                   </Button>
                 </Space>
               ) : null
@@ -481,63 +473,6 @@ export const UtilsPPOcrPage = () => {
           >
             {selectedDetail ? (
               <Space direction="vertical" size={16} style={{ width: "100%" }}>
-                <Row gutter={[12, 12]} align="top">
-                  <Col xs={24} md={10}>
-                    <Select<SectionRebuildStrategy>
-                      value={sectionStrategy}
-                      style={{ width: "100%" }}
-                      options={[
-                        { value: "decimal_number", label: "1 / 1.2 / 1.2.3" },
-                        { value: "chinese_number", label: "一、/（一）/ 1." },
-                        { value: "markdown_heading", label: "# / ## / ###" },
-                        { value: "custom", label: "Custom regex" },
-                      ]}
-                      onChange={setSectionStrategy}
-                    />
-                  </Col>
-                  <Col xs={24} md={14}>
-                    <Space wrap>
-                      <Switch checked={useTocOutline} onChange={setUseTocOutline} />
-                      <Typography.Text type="secondary">Use TOC as outline</Typography.Text>
-                    </Space>
-                  </Col>
-                </Row>
-
-                {sectionStrategy === "custom" ? (
-                  <Row gutter={[12, 12]}>
-                    <Col xs={24} md={8}>
-                      <Typography.Text type="secondary">Level 1 regex</Typography.Text>
-                      <TextArea
-                        autoSize
-                        value={customPatterns.level1_pattern}
-                        onChange={(event) =>
-                          setCustomPatterns((current) => ({ ...current, level1_pattern: event.target.value }))
-                        }
-                      />
-                    </Col>
-                    <Col xs={24} md={8}>
-                      <Typography.Text type="secondary">Level 2 regex</Typography.Text>
-                      <TextArea
-                        autoSize
-                        value={customPatterns.level2_pattern}
-                        onChange={(event) =>
-                          setCustomPatterns((current) => ({ ...current, level2_pattern: event.target.value }))
-                        }
-                      />
-                    </Col>
-                    <Col xs={24} md={8}>
-                      <Typography.Text type="secondary">Level 3 regex</Typography.Text>
-                      <TextArea
-                        autoSize
-                        value={customPatterns.level3_pattern}
-                        onChange={(event) =>
-                          setCustomPatterns((current) => ({ ...current, level3_pattern: event.target.value }))
-                        }
-                      />
-                    </Col>
-                  </Row>
-                ) : null}
-
                 {sectionTree.length ? (
                   <SectionTreeViewer
                     sections={sectionTree}
@@ -561,7 +496,7 @@ export const UtilsPPOcrPage = () => {
                     )}
                   />
                 ) : (
-                  <Empty description="No sections found. Select a strategy and rebuild after parsing." />
+                  <Empty description="No sections found. Run directory parsing after OCR finishes." />
                 )}
               </Space>
             ) : (
@@ -651,3 +586,11 @@ const buildSectionTree = (
 
   return roots;
 };
+
+const getErrorDetail = (error: unknown) =>
+  typeof error === "object" &&
+  error !== null &&
+  "response" in error &&
+  typeof (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail === "string"
+    ? (error as { response: { data: { detail: string } } }).response.data.detail
+    : null;

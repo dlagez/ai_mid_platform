@@ -15,9 +15,10 @@ def rebuild_parse_result_sections(
     parse_result: ParseResult,
     markdown: str,
     *,
-    strategy: str = "decimal_number",
+    strategy: str = "ppocr_toc_outline",
     custom_patterns: dict[int, str] | None = None,
     use_toc_outline: bool = True,
+    secondary_decimal_split: bool = False,
 ) -> list[ParseResultSection]:
     """Rebuild the persisted section tree for a parse_result.
 
@@ -36,6 +37,7 @@ def rebuild_parse_result_sections(
         strategy=strategy,
         custom_patterns=custom_patterns,
         use_toc_outline=use_toc_outline,
+        secondary_decimal_split=secondary_decimal_split,
     )
     sort_no = 1
     for section in parsed_sections:

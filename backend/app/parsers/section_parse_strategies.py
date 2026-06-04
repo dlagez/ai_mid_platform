@@ -12,6 +12,7 @@ SECTION_PARSE_MODES = frozenset(
     {
         "docling_auto",
         "docling_toc_outline",
+        "ppocr_toc_outline",
         "python_docx",
         "word_native",
     }
@@ -49,6 +50,25 @@ class DoclingTocOutlineSectionParseStrategy:
         return parse_markdown_sections(markdown, strategy="auto", use_toc_outline=True)
 
 
+class PPOcrTocOutlineSectionParseStrategy:
+    """PPOCR PDF -> markdown -> TOC/contents outline tree with body matching."""
+
+    name = "ppocr_toc_outline"
+
+    def parse_sections(self, file_path: str, file_name: str) -> list[ParsedSection]:
+        suffix = Path(file_name).suffix.lower()
+        if suffix != ".pdf":
+            raise ParserConfigError(
+                f"ppocr_toc_outline section parse mode supports only .pdf files; got {suffix or 'unknown'}."
+            )
+        from app.parsers.ppocr import PPOcrParser
+        from app.parsers.section_strategy import parse_sections_from_toc_keyword_outline
+
+        markdown = PPOcrParser().convert_to_markdown(file_path, file_name)
+        sections = parse_sections_from_toc_keyword_outline(markdown, strategy="auto")
+        return sections or parse_markdown_sections(markdown, strategy="auto", use_toc_outline=True)
+
+
 class WordNativeSectionParseStrategy:
     """Word OOXML: heading styles + numbered fallback; skips TOC-styled paragraphs."""
 
@@ -79,6 +99,7 @@ class PythonDocxSectionParseStrategy:
 _STRATEGY_BY_MODE: dict[str, SectionParseStrategy] = {
     DoclingAutoSectionParseStrategy.name: DoclingAutoSectionParseStrategy(),
     DoclingTocOutlineSectionParseStrategy.name: DoclingTocOutlineSectionParseStrategy(),
+    PPOcrTocOutlineSectionParseStrategy.name: PPOcrTocOutlineSectionParseStrategy(),
     PythonDocxSectionParseStrategy.name: PythonDocxSectionParseStrategy(),
     WordNativeSectionParseStrategy.name: WordNativeSectionParseStrategy(),
 }

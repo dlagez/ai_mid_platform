@@ -1,6 +1,11 @@
 import { apiClient } from "./apiClient";
 
-export type SectionParseMode = "docling_auto" | "docling_toc_outline" | "python_docx" | "word_native";
+export type SectionParseMode =
+  | "docling_auto"
+  | "docling_toc_outline"
+  | "ppocr_toc_outline"
+  | "python_docx"
+  | "word_native";
 
 export type SectionParseModeItem = {
   mode: SectionParseMode;
@@ -19,6 +24,11 @@ export const SECTION_PARSE_MODE_OPTIONS: SectionParseModeItem[] = [
     mode: "docling_toc_outline",
     label: "Docling 目录大纲分章",
     description: "Docling 转 Markdown，识别目录/目次并与正文标题匹配后填充章节内容。",
+  },
+  {
+    mode: "ppocr_toc_outline",
+    label: "PPOCR PDF 目录分章",
+    description: "PPOCR 解析 PDF 后，按目录/目次下方条目建树，并按目录标题到正文匹配内容。",
   },
   {
     mode: "python_docx",

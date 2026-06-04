@@ -578,6 +578,10 @@ def _section_parse_mode_item(mode: str) -> SectionParseModeItem:
             "Docling 目录大纲分章",
             "Docling 转 Markdown，识别目录/目次并与正文标题匹配后填充章节内容。",
         ),
+        "ppocr_toc_outline": (
+            "PPOCR PDF 目录分章",
+            "PPOCR 解析 PDF 后，按目录/目次下方条目建树，并按目录标题到正文匹配内容。",
+        ),
         "python_docx": (
             "python-docx 分章",
             "使用 python-docx 读取 Word 段落和标题样式，跳过目录段落和目录区域。",
