@@ -169,6 +169,17 @@ body {
   margin-top: 12px;
 }
 
+.toc-review-issue {
+  padding: 10px 12px;
+  border: 1px solid #e8edf3;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.toc-review-issue > div {
+  margin-top: 4px;
+}
+
 .match-detail-panel {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.2fr) minmax(220px, 0.8fr);

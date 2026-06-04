@@ -46,7 +46,7 @@ def upgrade() -> None:
         sa.Column("id", sa.BigInteger(), nullable=False),
         sa.Column("job_id", sa.BigInteger(), nullable=False),
         sa.Column("standard_id", sa.BigInteger(), nullable=False),
-        sa.Column("standard_clause_id", sa.BigInteger(), nullable=False),
+        sa.Column("standard_section_id", sa.BigInteger(), nullable=False),
         sa.Column("plan_document_id", sa.BigInteger(), nullable=False),
         sa.Column("plan_section_id", sa.BigInteger(), nullable=False),
         sa.Column("match_type", sa.String(length=50), nullable=False),
@@ -55,17 +55,17 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.ForeignKeyConstraint(["job_id"], ["toc_match_job.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["standard_id"], ["standard_document.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["standard_clause_id"], ["standard_clause.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["standard_section_id"], ["parse_result_section.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["plan_document_id"], ["plan_document.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["plan_section_id"], ["plan_section.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
-    for column in ("id", "job_id", "standard_id", "standard_clause_id", "plan_document_id", "plan_section_id", "created_at"):
+    for column in ("id", "job_id", "standard_id", "standard_section_id", "plan_document_id", "plan_section_id", "created_at"):
         op.create_index(op.f(f"ix_toc_match_item_{column}"), "toc_match_item", [column])
 
 
 def downgrade() -> None:
-    for column in ("created_at", "plan_section_id", "plan_document_id", "standard_clause_id", "standard_id", "job_id", "id"):
+    for column in ("created_at", "plan_section_id", "plan_document_id", "standard_section_id", "standard_id", "job_id", "id"):
         op.drop_index(op.f(f"ix_toc_match_item_{column}"), table_name="toc_match_item")
     op.drop_table("toc_match_item")
     for column in ("created_at", "created_by", "status", "standard_id", "plan_parse_result_id", "plan_document_id", "id"):

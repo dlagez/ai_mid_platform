@@ -772,6 +772,8 @@ class TocMatchJob(Base):
     model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="running", index=True)
     match_count: Mapped[int] = mapped_column(Integer, default=0)
+    reviewed_count: Mapped[int] = mapped_column(Integer, default=0)
+    issue_count: Mapped[int] = mapped_column(Integer, default=0)
     raw_llm_response: Mapped[dict | list | str | None] = mapped_column(JSONB, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
@@ -795,17 +797,26 @@ class TocMatchItem(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     job_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("toc_match_job.id", ondelete="CASCADE"), index=True)
     standard_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("standard_document.id", ondelete="CASCADE"), index=True)
-    standard_clause_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("standard_clause.id", ondelete="CASCADE"), index=True)
+    standard_section_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("parse_result_section.id", ondelete="CASCADE"),
+        index=True,
+    )
     plan_document_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("plan_document.id", ondelete="CASCADE"), index=True)
     plan_section_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("plan_section.id", ondelete="CASCADE"), index=True)
     match_type: Mapped[str] = mapped_column(String(50), default="semantic")
     confidence: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    review_status: Mapped[str] = mapped_column(String(50), default="pending", index=True)
+    review_issues: Mapped[list] = mapped_column(JSONB, default=list)
+    raw_review_response: Mapped[dict | list | str | None] = mapped_column(JSONB, nullable=True)
+    review_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
     job: Mapped[TocMatchJob] = relationship("TocMatchJob", back_populates="items", foreign_keys=[job_id])
     standard: Mapped[StandardDocument] = relationship("StandardDocument", foreign_keys=[standard_id])
-    standard_clause: Mapped[StandardClause] = relationship("StandardClause", foreign_keys=[standard_clause_id])
+    standard_section: Mapped[ParseResultSection] = relationship("ParseResultSection", foreign_keys=[standard_section_id])
     plan_document: Mapped[PlanDocument] = relationship("PlanDocument", foreign_keys=[plan_document_id])
     plan_section: Mapped[PlanSection] = relationship("PlanSection", foreign_keys=[plan_section_id])
 

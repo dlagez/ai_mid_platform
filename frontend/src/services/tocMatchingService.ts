@@ -15,6 +15,8 @@ export type TocMatchJob = {
   model: string | null;
   status: string;
   match_count: number;
+  reviewed_count: number;
+  issue_count: number;
   raw_llm_response: unknown;
   error_message: string | null;
   created_by: number | null;
@@ -22,12 +24,19 @@ export type TocMatchJob = {
   completed_at: string | null;
 };
 
+export type TocReviewIssue = {
+  standard_basis: string;
+  plan_evidence: string;
+  problem_description: string;
+  rectification_suggestion: string;
+};
+
 export type TocMatchItem = {
   id: number;
   job_id: number;
   standard_id: number;
-  standard_clause_id: number;
-  standard_clause_no: string | null;
+  standard_section_id: number;
+  standard_section_no: string | null;
   standard_title: string | null;
   standard_path: string | null;
   plan_document_id: number;
@@ -38,6 +47,11 @@ export type TocMatchItem = {
   match_type: string;
   confidence: number | null;
   reason: string | null;
+  review_status: string;
+  review_issues: TocReviewIssue[];
+  raw_review_response: unknown;
+  review_error: string | null;
+  reviewed_at: string | null;
   created_at: string;
 };
 

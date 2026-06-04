@@ -200,6 +200,13 @@ export const TocMatchingPage = () => {
             { title: "Standard ID", dataIndex: "standard_id", width: 120 },
             { title: "Status", dataIndex: "status", width: 120, render: (value: string) => <StatusTag status={value} /> },
             { title: "Matches", dataIndex: "match_count", width: 100 },
+            { title: "Reviewed", dataIndex: "reviewed_count", width: 110 },
+            {
+              title: "Issues",
+              dataIndex: "issue_count",
+              width: 100,
+              render: (value: number) => <Tag color={value > 0 ? "red" : "green"}>{value ?? 0}</Tag>,
+            },
             { title: "Model", dataIndex: "model", width: 150, render: (value: string | null) => value || "default" },
             { title: "Error", dataIndex: "error_message", ellipsis: true, render: (value: string | null) => value || "-" },
             { title: "Created At", dataIndex: "created_at", width: 180, render: formatDateTime },
@@ -231,6 +238,10 @@ export const TocMatchingPage = () => {
           dataSource={items}
           pagination={{ pageSize: 20 }}
           locale={{ emptyText: selectedJob ? "No matches." : "Select a match job." }}
+          expandable={{
+            expandedRowRender: (record) => <IssueList record={record} />,
+            rowExpandable: (record) => Boolean(record.review_error || record.review_issues.length),
+          }}
           columns={[
             {
               title: "Standard Chapter",
@@ -238,7 +249,7 @@ export const TocMatchingPage = () => {
               width: 320,
               render: (_, record) => (
                 <Typography.Text>
-                  {formatNode(record.standard_clause_no, record.standard_title)}
+                  {formatNode(record.standard_section_no, record.standard_title)}
                   {record.standard_path ? <Typography.Text type="secondary"> / {record.standard_path}</Typography.Text> : null}
                 </Typography.Text>
               ),
@@ -260,6 +271,17 @@ export const TocMatchingPage = () => {
               dataIndex: "confidence",
               width: 120,
               render: (value: number | null) => (value == null ? "-" : `${Math.round(value * 100)}%`),
+            },
+            {
+              title: "Review",
+              dataIndex: "review_status",
+              width: 130,
+              render: (value: string, record) => (
+                <Space size={4}>
+                  <StatusTag status={value} />
+                  <Tag color={record.review_issues.length > 0 ? "red" : "green"}>{record.review_issues.length}</Tag>
+                </Space>
+              ),
             },
             { title: "Reason", dataIndex: "reason", ellipsis: true },
           ]}
@@ -283,3 +305,37 @@ const StatusTag = ({ status }: { status: string }) => {
 const formatDateTime = (value: string | null) => (value ? new Date(value).toLocaleString() : "-");
 
 const formatNode = (no: string | null, title: string | null) => [no, title].filter(Boolean).join(" ") || "-";
+
+const IssueList = ({ record }: { record: TocMatchItem }) => {
+  if (record.review_error) {
+    return <Typography.Text type="danger">{record.review_error}</Typography.Text>;
+  }
+  if (!record.review_issues.length) {
+    return <Typography.Text type="secondary">No issues found.</Typography.Text>;
+  }
+  return (
+    <Space direction="vertical" size={12} style={{ width: "100%" }}>
+      {record.review_issues.map((issue, index) => (
+        <div className="toc-review-issue" key={`${record.id}-${index}`}>
+          <Typography.Text strong>Issue {index + 1}</Typography.Text>
+          <div>
+            <Typography.Text type="secondary">Standard Basis: </Typography.Text>
+            <Typography.Text>{issue.standard_basis || "-"}</Typography.Text>
+          </div>
+          <div>
+            <Typography.Text type="secondary">Plan Evidence: </Typography.Text>
+            <Typography.Text>{issue.plan_evidence || "-"}</Typography.Text>
+          </div>
+          <div>
+            <Typography.Text type="secondary">Problem: </Typography.Text>
+            <Typography.Text>{issue.problem_description || "-"}</Typography.Text>
+          </div>
+          <div>
+            <Typography.Text type="secondary">Suggestion: </Typography.Text>
+            <Typography.Text>{issue.rectification_suggestion || "-"}</Typography.Text>
+          </div>
+        </div>
+      ))}
+    </Space>
+  );
+};

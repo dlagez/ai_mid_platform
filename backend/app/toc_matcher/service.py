@@ -9,10 +9,10 @@ from typing import Any
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.models import (
+    ParseResultSection,
     PlanDocument,
     PlanParseResult,
     PlanSection,
-    StandardClause,
     StandardDocument,
     TocMatchItem,
     TocMatchJob,
@@ -38,13 +38,44 @@ TOC_MATCH_PROMPT = """你是一名施工方案目录与规范目录匹配助手�
 7. reason 不超过 30 个汉字。
 
 输出格式：
-{"matches":[{"standard_clause_id":1,"plan_section_id":2,"confidence":0.85,"reason":"简短中文理由"}]}
+{"matches":[{"standard_section_id":1,"plan_section_id":2,"confidence":0.85,"reason":"简短中文理由"}]}
 
 施工方案目录（一二级）：
 {plan_toc}
 
 规范目录（一二级）：
 {standard_toc}
+"""
+
+
+TOC_REVIEW_PROMPT = """你是一名施工方案规范审查专家。
+
+任务：根据“标准规范章节内容”审查“施工方案对应章节内容”，找出施工方案中缺失、冲突、不满足规范要求或证据不足的问题。
+
+输出要求：
+1. 只输出单行紧凑 JSON，不要 Markdown，不要解释文字，不要代码块。
+2. 顶层必须是对象，且只包含 issues 数组。
+3. 如果未发现问题，输出 {"issues":[]}。
+4. 每个 issue 必须包含 standard_basis、plan_evidence、problem_description、rectification_suggestion 四个字段。
+5. standard_basis 应引用具体规范条款或要求；不得编造输入中不存在的规范要求。
+6. plan_evidence 应引用施工方案中的关键证据；若施工方案未找到对应要求，应明确写“未在施工方案本章节中找到……”。
+7. problem_description 应说明施工方案的问题，不要写泛泛风险。
+8. rectification_suggestion 应给出可执行的补充或整改建议。
+
+标准名称：
+{standard_name}
+
+标准规范章节内容：
+{standard_content}
+
+施工方案章节：
+{plan_title}
+
+施工方案章节内容：
+{plan_content}
+
+输出格式：
+{"issues":[{"standard_basis":"7.1.2 模板拆除前应确认混凝土强度达到设计或规范要求。","plan_evidence":"未在施工方案本章节中找到模板拆除前混凝土强度确认要求。","problem_description":"施工方案未明确模板拆除前混凝土强度应达到设计或规范要求。","rectification_suggestion":"建议补充模板拆除前混凝土强度确认要求，明确拆除前应核查同条件养护试块强度报告或相关验收资料。"}]}
 """
 
 
@@ -63,11 +94,11 @@ class TocMatcherService:
         standard = self._get_standard(db, standard_id)
         parse_result = self._get_parse_result(db, document, section_parse_mode)
         plan_sections = self._get_plan_toc_sections(db, document.id, parse_result.id)
-        standard_clauses = self._get_standard_toc_clauses(db, standard.id)
+        standard_sections = self._get_standard_toc_sections(db, standard)
         if not plan_sections:
             raise PlatformError("The construction plan has no parsed level-1/2 sections.", status_code=400)
-        if not standard_clauses:
-            raise PlatformError("The standard has no level-1/2 clauses.", status_code=400)
+        if not standard_sections:
+            raise PlatformError("The standard has no parsed level-1/2 sections.", status_code=400)
 
         job = TocMatchJob(
             plan_document_id=document.id,
@@ -82,10 +113,14 @@ class TocMatcherService:
         db.refresh(job)
 
         try:
-            response = await self._call_llm(plan_sections, standard_clauses, model=model, job=job)
+            response = await self._call_llm(plan_sections, standard_sections, model=model, job=job)
             job.raw_llm_response = response
             matches = _extract_matches(response)
-            self._persist_matches(db, job, matches, plan_sections, standard_clauses)
+            self._persist_matches(db, job, matches, plan_sections, standard_sections)
+            job.status = "reviewing"
+            db.commit()
+            self._refresh_for_review(db, job)
+            await self._review_matches(db, job, model=model)
             job.status = "success"
             job.error_message = None
             job.completed_at = datetime.utcnow()
@@ -138,12 +173,15 @@ class TocMatcherService:
             raise PlatformError(f"TOC match job id={job_id} not found", status_code=404)
         items = (
             db.query(TocMatchItem)
-            .options(joinedload(TocMatchItem.standard_clause), joinedload(TocMatchItem.plan_section))
+            .options(joinedload(TocMatchItem.standard_section), joinedload(TocMatchItem.plan_section))
             .filter(TocMatchItem.job_id == job.id)
             .order_by(TocMatchItem.id.asc())
             .all()
         )
         return job, items
+
+    def _refresh_for_review(self, db: Session, job: TocMatchJob) -> None:
+        db.refresh(job)
 
     def _get_plan_document(self, db: Session, document_id: int) -> PlanDocument:
         document = db.query(PlanDocument).filter(PlanDocument.id == document_id).first()
@@ -184,24 +222,36 @@ class TocMatcherService:
             .all()
         )
 
-    def _get_standard_toc_clauses(self, db: Session, standard_id: int) -> list[StandardClause]:
+    def _get_standard_toc_sections(self, db: Session, standard: StandardDocument) -> list[ParseResultSection]:
+        if not standard.source_document_id:
+            raise PlatformError("The selected standard has no source parse result.", status_code=400)
         return (
-            db.query(StandardClause)
-            .filter(StandardClause.standard_id == standard_id, StandardClause.level <= 2)
-            .order_by(StandardClause.order_no.asc(), StandardClause.id.asc())
+            db.query(ParseResultSection)
+            .filter(ParseResultSection.document_id == standard.source_document_id, ParseResultSection.title_level <= 2)
+            .order_by(ParseResultSection.sort_no.asc(), ParseResultSection.id.asc())
+            .all()
+        )
+
+    def _get_standard_sections(self, db: Session, standard: StandardDocument) -> list[ParseResultSection]:
+        if not standard.source_document_id:
+            raise PlatformError("The selected standard has no source parse result.", status_code=400)
+        return (
+            db.query(ParseResultSection)
+            .filter(ParseResultSection.document_id == standard.source_document_id)
+            .order_by(ParseResultSection.sort_no.asc(), ParseResultSection.id.asc())
             .all()
         )
 
     async def _call_llm(
         self,
         plan_sections: list[PlanSection],
-        standard_clauses: list[StandardClause],
+        standard_sections: list[ParseResultSection],
         *,
         model: str | None = None,
         job: TocMatchJob | None = None,
     ) -> dict[str, Any]:
         prompt = TOC_MATCH_PROMPT.replace("{plan_toc}", json.dumps(_plan_toc_payload(plan_sections), ensure_ascii=False))
-        prompt = prompt.replace("{standard_toc}", json.dumps(_standard_toc_payload(standard_clauses), ensure_ascii=False))
+        prompt = prompt.replace("{standard_toc}", json.dumps(_standard_toc_payload(standard_sections), ensure_ascii=False))
         service = ModelService()
         model_name = model or service.default_model
         payload = {
@@ -217,7 +267,7 @@ class TocMatcherService:
             "plan_parse_result_id": job.plan_parse_result_id if job else None,
             "standard_id": job.standard_id if job else None,
             "plan_toc_count": len(plan_sections),
-            "standard_toc_count": len(standard_clauses),
+            "standard_toc_count": len(standard_sections),
             "prompt_chars": len(prompt),
         }
         with langfuse_observation(
@@ -256,21 +306,21 @@ class TocMatcherService:
         job: TocMatchJob,
         matches: list[dict[str, Any]],
         plan_sections: list[PlanSection],
-        standard_clauses: list[StandardClause],
+        standard_sections: list[ParseResultSection],
     ) -> None:
         plan_by_id = {section.id: section for section in plan_sections}
-        clause_by_id = {clause.id: clause for clause in standard_clauses}
+        standard_by_id = {section.id: section for section in standard_sections}
         seen: set[tuple[int, int]] = set()
         count = 0
         db.query(TocMatchItem).filter(TocMatchItem.job_id == job.id).delete(synchronize_session=False)
         for match in matches:
-            standard_clause_id = _int_or_none(match.get("standard_clause_id"))
+            standard_section_id = _int_or_none(match.get("standard_section_id"))
             plan_section_id = _int_or_none(match.get("plan_section_id"))
-            if not standard_clause_id or not plan_section_id:
+            if not standard_section_id or not plan_section_id:
                 continue
-            if standard_clause_id not in clause_by_id or plan_section_id not in plan_by_id:
+            if standard_section_id not in standard_by_id or plan_section_id not in plan_by_id:
                 continue
-            key = (standard_clause_id, plan_section_id)
+            key = (standard_section_id, plan_section_id)
             if key in seen:
                 continue
             seen.add(key)
@@ -278,7 +328,7 @@ class TocMatcherService:
                 TocMatchItem(
                     job_id=job.id,
                     standard_id=job.standard_id,
-                    standard_clause_id=standard_clause_id,
+                    standard_section_id=standard_section_id,
                     plan_document_id=job.plan_document_id,
                     plan_section_id=plan_section_id,
                     match_type=str(match.get("match_type") or "semantic")[:50],
@@ -289,6 +339,127 @@ class TocMatcherService:
             count += 1
         job.match_count = count
         db.flush()
+
+    async def _review_matches(self, db: Session, job: TocMatchJob, *, model: str | None = None) -> None:
+        items = (
+            db.query(TocMatchItem)
+            .options(joinedload(TocMatchItem.standard_section), joinedload(TocMatchItem.plan_section))
+            .filter(TocMatchItem.job_id == job.id)
+            .order_by(TocMatchItem.id.asc())
+            .all()
+        )
+        if not items:
+            job.reviewed_count = 0
+            job.issue_count = 0
+            db.flush()
+            return
+
+        standard_sections = self._get_standard_sections(db, job.standard)
+        plan_sections = (
+            db.query(PlanSection)
+            .filter(
+                PlanSection.document_id == job.plan_document_id,
+                PlanSection.parse_result_id == job.plan_parse_result_id,
+            )
+            .order_by(PlanSection.sort_no.asc(), PlanSection.id.asc())
+            .all()
+        )
+        standard_by_parent = _group_by_parent(standard_sections)
+        plan_by_parent = _group_by_parent(plan_sections)
+
+        reviewed_count = 0
+        issue_count = 0
+        for item in items:
+            try:
+                item.review_status = "running"
+                db.flush()
+                standard_content = _subtree_content(item.standard_section, standard_by_parent, "standard")
+                plan_content = _subtree_content(item.plan_section, plan_by_parent, "plan")
+                response = await self._call_review_llm(
+                    item,
+                    standard_name=job.standard.standard_name if job.standard else "",
+                    standard_content=standard_content,
+                    plan_content=plan_content,
+                    model=model,
+                )
+                item.raw_review_response = response
+                issues = _extract_review_issues(response)
+                item.review_issues = issues
+                item.review_status = "success"
+                item.review_error = None
+                item.reviewed_at = datetime.utcnow()
+                reviewed_count += 1
+                issue_count += len(issues)
+            except Exception as exc:
+                item.review_status = "failed"
+                item.review_error = str(exc)
+                item.reviewed_at = datetime.utcnow()
+            job.reviewed_count = reviewed_count
+            job.issue_count = issue_count
+            db.flush()
+
+    async def _call_review_llm(
+        self,
+        item: TocMatchItem,
+        *,
+        standard_name: str,
+        standard_content: str,
+        plan_content: str,
+        model: str | None = None,
+    ) -> dict[str, Any]:
+        service = ModelService()
+        model_name = model or service.default_model
+        standard = item.standard_section
+        plan = item.plan_section
+        prompt = TOC_REVIEW_PROMPT.replace("{standard_name}", standard_name or "")
+        prompt = prompt.replace("{standard_content}", _truncate(standard_content, 9000))
+        prompt = prompt.replace("{plan_title}", _format_plan_title(plan))
+        prompt = prompt.replace("{plan_content}", _truncate(plan_content, 9000))
+        payload = {
+            "model": model_name,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1,
+            "max_tokens": 3000,
+        }
+        metadata = {
+            "operation": "toc_matching.review",
+            "job_id": item.job_id,
+            "match_item_id": item.id,
+            "standard_section_id": item.standard_section_id,
+            "plan_section_id": item.plan_section_id,
+            "standard_section_no": standard.section_no if standard else None,
+            "plan_section_no": plan.section_no if plan else None,
+            "prompt_chars": len(prompt),
+        }
+        with langfuse_observation(
+            name="toc_matching.review",
+            input_data={"messages": payload["messages"]},
+            metadata=metadata,
+            session_id=f"toc-match-job:{item.job_id}",
+            tags=["toc_matching", "toc_review", "llm"],
+            as_type="generation",
+            model=model_name,
+        ) as observation:
+            response = await service.call_model(payload)
+            content = ((response.get("output") or {}).get("content") or "").strip()
+            parsed, parse_error = _loads_json_object(content)
+            result_payload: dict[str, Any] = {"model_response": response, "content": content, "parsed": parsed}
+            if parse_error:
+                result_payload["parse_error"] = parse_error
+            issues = _extract_review_issues(result_payload)
+            update_langfuse_observation(
+                observation,
+                output={"content": content},
+                metadata=metadata
+                | {
+                    "provider": response.get("provider"),
+                    "model": response.get("model"),
+                    "output_chars": len(content),
+                    "parse_error": parse_error,
+                    "issue_count": len(issues),
+                },
+            )
+        return result_payload
 
 
 def _plan_toc_payload(sections: list[PlanSection]) -> list[dict[str, Any]]:
@@ -306,18 +477,18 @@ def _plan_toc_payload(sections: list[PlanSection]) -> list[dict[str, Any]]:
     ]
 
 
-def _standard_toc_payload(clauses: list[StandardClause]) -> list[dict[str, Any]]:
-    clause_by_id = {clause.id: clause for clause in clauses}
+def _standard_toc_payload(sections: list[ParseResultSection]) -> list[dict[str, Any]]:
+    section_by_id = {section.id: section for section in sections}
     return [
         {
-            "id": clause.id,
-            "parent_id": clause.parent_id if clause.parent_id in clause_by_id else None,
-            "level": clause.level,
-            "clause_no": clause.clause_no,
-            "title": clause.title,
-            "path": clause.path or _clause_path(clause, clause_by_id),
+            "id": section.id,
+            "parent_id": section.parent_id if section.parent_id in section_by_id else None,
+            "level": section.title_level,
+            "section_no": section.section_no,
+            "title": section.title,
+            "path": _parse_section_path(section, section_by_id),
         }
-        for clause in clauses
+        for section in sections
     ]
 
 
@@ -331,12 +502,12 @@ def _section_path(section: PlanSection, section_by_id: dict[int, PlanSection]) -
     return " / ".join(reversed([part for part in parts if part]))
 
 
-def _clause_path(clause: StandardClause, clause_by_id: dict[int, StandardClause]) -> str:
-    parts = [clause.title or clause.clause_no or ""]
-    parent_id = clause.parent_id
-    while parent_id and parent_id in clause_by_id:
-        parent = clause_by_id[parent_id]
-        parts.append(parent.title or parent.clause_no or "")
+def _parse_section_path(section: ParseResultSection, section_by_id: dict[int, ParseResultSection]) -> str:
+    parts = [section.title]
+    parent_id = section.parent_id
+    while parent_id and parent_id in section_by_id:
+        parent = section_by_id[parent_id]
+        parts.append(parent.title)
         parent_id = parent.parent_id
     return " / ".join(reversed([part for part in parts if part]))
 
@@ -380,7 +551,7 @@ def _strip_json_wrappers(content: str) -> str:
 def _salvage_match_objects(content: str) -> list[dict[str, Any]]:
     cleaned = _strip_json_wrappers(content)
     matches: list[dict[str, Any]] = []
-    for object_text in re.findall(r"\{[^{}]*\"standard_clause_id\"[^{}]*\"plan_section_id\"[^{}]*\}", cleaned, flags=re.S):
+    for object_text in re.findall(r"\{[^{}]*\"standard_section_id\"[^{}]*\"plan_section_id\"[^{}]*\}", cleaned, flags=re.S):
         try:
             item = json.loads(object_text)
         except json.JSONDecodeError:
@@ -403,6 +574,72 @@ def _confidence(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return max(0.0, min(number, 1.0))
+
+
+def _group_by_parent(items: list[Any]) -> dict[int | None, list[Any]]:
+    grouped: dict[int | None, list[Any]] = {}
+    for item in items:
+        grouped.setdefault(getattr(item, "parent_id", None), []).append(item)
+    return grouped
+
+
+def _subtree_content(root: Any, by_parent: dict[int | None, list[Any]], kind: str) -> str:
+    if not root:
+        return ""
+    lines: list[str] = []
+
+    def visit(node: Any) -> None:
+        title = _format_standard_title(node) if kind == "standard" else _format_plan_title(node)
+        content = str(getattr(node, "content", "") or "").strip()
+        if title:
+            lines.append(f"## {title}")
+        if content:
+            lines.append(content)
+        for child in by_parent.get(getattr(node, "id", None), []):
+            visit(child)
+
+    visit(root)
+    return "\n\n".join(line for line in lines if line).strip()
+
+
+def _format_standard_title(section: ParseResultSection | None) -> str:
+    if not section:
+        return ""
+    return " ".join(str(part).strip() for part in (section.section_no, section.title) if part)
+
+
+def _format_plan_title(section: PlanSection | None) -> str:
+    if not section:
+        return ""
+    return " ".join(str(part).strip() for part in (section.section_no, section.title) if part)
+
+
+def _extract_review_issues(response: dict[str, Any]) -> list[dict[str, str]]:
+    parsed = response.get("parsed")
+    if isinstance(parsed, dict) and isinstance(parsed.get("issues"), list):
+        return [_normalize_issue(item) for item in parsed["issues"] if isinstance(item, dict)]
+    content = response.get("content")
+    if isinstance(content, str):
+        parsed_content, _ = _loads_json_object(content)
+        if isinstance(parsed_content, dict) and isinstance(parsed_content.get("issues"), list):
+            return [_normalize_issue(item) for item in parsed_content["issues"] if isinstance(item, dict)]
+    return []
+
+
+def _normalize_issue(item: dict[str, Any]) -> dict[str, str]:
+    return {
+        "standard_basis": str(item.get("standard_basis") or "").strip(),
+        "plan_evidence": str(item.get("plan_evidence") or "").strip(),
+        "problem_description": str(item.get("problem_description") or "").strip(),
+        "rectification_suggestion": str(item.get("rectification_suggestion") or "").strip(),
+    }
+
+
+def _truncate(text: str, limit: int) -> str:
+    value = str(text or "").strip()
+    if len(value) <= limit:
+        return value
+    return value[:limit] + "\n...[内容已截断]"
 
 
 def get_toc_matcher_service() -> Generator[TocMatcherService, None, None]:

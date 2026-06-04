@@ -67,29 +67,34 @@ async def get_toc_match_job(
 
 
 def _to_item_read(item: TocMatchItem) -> TocMatchItemRead:
-    standard = item.standard_clause
+    standard = item.standard_section
     plan = item.plan_section
     return TocMatchItemRead(
         id=item.id,
         job_id=item.job_id,
         standard_id=item.standard_id,
-        standard_clause_id=item.standard_clause_id,
-        standard_clause_no=standard.clause_no if standard else None,
+        standard_section_id=item.standard_section_id,
+        standard_section_no=standard.section_no if standard else None,
         standard_title=standard.title if standard else None,
-        standard_path=standard.path if standard else None,
+        standard_path=_section_path(standard) if standard else None,
         plan_document_id=item.plan_document_id,
         plan_section_id=item.plan_section_id,
         plan_section_no=plan.section_no if plan else None,
         plan_title=plan.title if plan else None,
-        plan_path=_plan_path(plan) if plan else None,
+        plan_path=_section_path(plan) if plan else None,
         match_type=item.match_type,
         confidence=float(item.confidence) if item.confidence is not None else None,
         reason=item.reason,
+        review_status=item.review_status,
+        review_issues=item.review_issues or [],
+        raw_review_response=item.raw_review_response,
+        review_error=item.review_error,
+        reviewed_at=item.reviewed_at,
         created_at=item.created_at,
     )
 
 
-def _plan_path(section: object) -> str | None:
+def _section_path(section: object) -> str | None:
     title = getattr(section, "title", None)
     parent = getattr(section, "parent", None)
     if not title:
