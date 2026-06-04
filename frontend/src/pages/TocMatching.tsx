@@ -1,11 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button, Card, Form, Input, InputNumber, Select, Space, Table, Tag, Typography, message } from "antd";
 import type { TablePaginationConfig } from "antd";
-import { AuditOutlined, BranchesOutlined, EyeOutlined, ReloadOutlined, RobotOutlined, SearchOutlined } from "@ant-design/icons";
+import {
+  AuditOutlined,
+  BranchesOutlined,
+  DownloadOutlined,
+  EyeOutlined,
+  ReloadOutlined,
+  RobotOutlined,
+  SearchOutlined,
+} from "@ant-design/icons";
 import { listDocuments, type DocumentRecord } from "../services/documentService";
 import { listStandards, type StandardDocument } from "../services/standardService";
 import {
   createTocMatchJob,
+  exportTocMatchIssues,
   getTocMatchJob,
   listTocMatchJobs,
   reviewTocMatchItem,
@@ -38,6 +47,7 @@ export const TocMatchingPage = () => {
   const [loading, setLoading] = useState({ options: false, jobs: false, run: false, detail: false });
   const [reviewJobId, setReviewJobId] = useState<number | null>(null);
   const [reviewItemId, setReviewItemId] = useState<number | null>(null);
+  const [exportJobId, setExportJobId] = useState<number | null>(null);
   const [runForm] = Form.useForm<RunFormValues>();
   const [filterForm] = Form.useForm<FilterValues>();
 
@@ -165,6 +175,17 @@ export const TocMatchingPage = () => {
     }
   };
 
+  const exportIssues = async (job: TocMatchJob) => {
+    setExportJobId(job.id);
+    try {
+      await exportTocMatchIssues(job.id);
+    } catch {
+      message.error("Failed to export review issues.");
+    } finally {
+      setExportJobId(null);
+    }
+  };
+
   const applyFilter = async () => {
     const values = filterForm.getFieldsValue();
     await loadJobs({ ...values, page: 1, page_size: query.page_size ?? 10 }, true);
@@ -248,7 +269,7 @@ export const TocMatchingPage = () => {
             { title: "Created At", dataIndex: "created_at", width: 180, render: formatDateTime },
             {
               title: "Actions",
-              width: 210,
+              width: 300,
               render: (_, record) => (
                 <Space>
                   <Button size="small" icon={<EyeOutlined />} onClick={() => void loadDetail(record.id)}>
@@ -262,6 +283,15 @@ export const TocMatchingPage = () => {
                     onClick={() => void runJobReview(record.id)}
                   >
                     Re-review All
+                  </Button>
+                  <Button
+                    size="small"
+                    icon={<DownloadOutlined />}
+                    loading={exportJobId === record.id}
+                    disabled={record.issue_count === 0}
+                    onClick={() => void exportIssues(record)}
+                  >
+                    Export
                   </Button>
                 </Space>
               ),
@@ -280,15 +310,26 @@ export const TocMatchingPage = () => {
         }
         extra={
           selectedJob ? (
-            <Button
-              size="small"
-              icon={<AuditOutlined />}
-              loading={reviewJobId === selectedJob.id}
-              disabled={!items.length}
-              onClick={() => void runJobReview(selectedJob.id)}
-            >
-              Re-review All
-            </Button>
+            <Space>
+              <Button
+                size="small"
+                icon={<DownloadOutlined />}
+                loading={exportJobId === selectedJob.id}
+                disabled={selectedJob.issue_count === 0}
+                onClick={() => void exportIssues(selectedJob)}
+              >
+                Export Issues
+              </Button>
+              <Button
+                size="small"
+                icon={<AuditOutlined />}
+                loading={reviewJobId === selectedJob.id}
+                disabled={!items.length}
+                onClick={() => void runJobReview(selectedJob.id)}
+              >
+                Re-review All
+              </Button>
+            </Space>
           ) : null
         }
       >

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.db.models import TocMatchItem
@@ -71,6 +73,25 @@ async def get_toc_match_job(
 ) -> TocMatchJobDetail:
     job, items = service.get_job_detail(db, job_id)
     return TocMatchJobDetail(job=job, items=[_to_item_read(item) for item in items])
+
+
+@router.get("/jobs/{job_id}/issues/export")
+async def export_toc_match_issues(
+    job_id: int,
+    _: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[TocMatcherService, Depends(get_toc_matcher_service)],
+    db: Annotated[Session, Depends(get_db)],
+) -> StreamingResponse:
+    buffer, filename = service.export_review_issues_to_excel(db, job_id)
+    encoded_name = quote(filename, safe="")
+    fallback_name = f"toc_match_job_{job_id}_issues.xlsx"
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{fallback_name}\"; filename*=UTF-8''{encoded_name}",
+        },
+    )
 
 
 @router.post("/jobs/{job_id}/review", response_model=TocMatchJobDetail)
