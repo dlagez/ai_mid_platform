@@ -36,40 +36,42 @@ GENERATION_JOB_STATUSES = {"queued", "running", "success", "partial_success", "f
 DEFAULT_GENERATION_CONCURRENCY = 5
 MAX_GENERATION_CONCURRENCY = 10
 
-CHECKPOINT_PROMPT = """你是一名施工规范最小审查点抽取助手。
+CHECKPOINT_PROMPT = """你是一名施工规范审核点抽取助手。
+请基于【规范内容】，只抽取可用于施工方案审核的 T1、T2 类最小审核点。
+只输出单行紧凑 JSON，不要输出 Markdown，不要解释，不要换行，不要缩进。
 
-请基于 内容，抽取用于“施工方案证据点匹配”的最小规范审查点。
+【规范内容】
+{clause_title}
+{clause_content}
 
-只输出单行紧凑 JSON，不要输出 Markdown，不要添加解释性文字，不要换行，不要缩进，不要使用代码块。
+【只抽取以下两类】
 
-内容：{clause_title}{clause_content}
+T1：强制性/禁止性要求
+- 含义：必须严格执行、不得变通的底线要求，通常涉及人身安全、结构安全、施工安全。
+- 典型词：必须、严禁、不得、禁止、应。
+- 审核重点：施工方案是否明确满足该要求，是否存在违反、弱化、变通表述。
 
-重要原则：
+T2：量化/技术参数要求
+- 含义：包含明确数值、尺寸、间距、厚度、高度、长度、时间、比例、数量、允许偏差等可核查参数的技术要求。
+- 典型词：数字、大于、小于、不大于、不小于、不少于、不超过、宜、mm、m、%、h、d。
+- 审核重点：施工方案中的具体参数是否在规范允许范围内。
+
+【抽取规则】
 
 1. checkpoints 必须是数组。
-2. rule_text 必须来自规范原文，是可用于审查施工方案的最小规范审查点。
-3. 最小审查点不是越短越好，而是应满足“一个独立审查语义 + 必要上下文”。
-4. object_terms 必须来自条文标题或原文中的对象词。
-5. 不要判断施工方案是否符合规范，不要生成整改意见，只抽取规范中已经写明的审查点。
-6. confidence 为 0-1 小数，表示该审查点抽取可信度。
-7. 如果条文中没有可审查的具体要求、禁止项、条件项、参数或对象关系，则 checkpoints 输出空数组。
-8. 每个rule_text为原文其中一段，且不允许重复，所有的rule_text连起来等于原文。
-9. 如果有表格，则每一行作为一个checkpoints、rule_text
+2. 只抽取 T1 或 T2 审核点；不属于 T1/T2 的说明性、背景性、定义性内容一律忽略。
+3. rule_text 必须来自规范原文，不得改写、扩写或生成整改意见。
+4. 每个 rule_text 应是一个独立可审核语义单元，并保留必要上下文。
+5. object_terms 必须来自条文标题或原文中的对象词。
+6. type_code 只能为 "T1" 或 "T2"。
+7. 若同一句同时包含强制/禁止要求和量化参数，优先按主要审核意图判断；必要时可拆成多个审核点。
+8. 若表格中存在 T1/T2 内容，按表格每一行抽取一个或多个 checkpoints。
+9. 若没有 T1/T2 审核点，输出 {"checkpoints":[]}。
+10. confidence 为 0-1 小数，表示抽取可信度。
 
-拆分示例：
-原文：
-“立柱接长严禁搭接，必须采用对接扣件连接，相邻两立柱的对接接头不得在同步内，且对接接头沿竖向错开的距离不宜小于 500mm，各接头中心距主节点不宜大于步距的 1/3。模板支架可调托撑伸出顶层水平杆的悬臂长度严禁超过 650mm。”
+【输出格式】
 
-步骤：1、原文拆分成2个rule_text，每个rule_text独立且不会重复，且每个rule_text语义独立，下一句话不会有上一句话的相关内容。2、抽取rule_text中的对象词。
-
-1. rule_text: “立柱接长严禁搭接，必须采用对接扣件连接，相邻两立柱的对接接头不得在同步内，且对接接头沿竖向错开的距离不宜小于 500mm，各接头中心距主节点不宜大于步距的 1/3”
-    object_terms: [“立柱”, “对接扣件”, “对接接头”, “主节点”, “步距”]
-
-2. rule_text: “模板支架可调托撑伸出顶层水平杆的悬臂长度严禁超过 650mm”
-    object_terms: [“模板支架”, “可调托撑”, “顶层水平杆”, “悬臂长度”]
-
-输出格式必须严格为单行 JSON：
-{"checkpoints":[{"rule_text":"","object_terms":[],"confidence":0.0}]}
+{"checkpoints":[{"type_code":"","rule_text":"","object_terms":[],"confidence":0.0}]}
 """
 
 
@@ -412,23 +414,30 @@ class ReviewCheckpointService:
             .order_by(ReviewCheckpoint.clause_id.asc(), ReviewCheckpoint.id.asc())
             .all()
         )
+        clauses = (
+            db.query(StandardClause)
+            .filter(StandardClause.standard_id == standard_id)
+            .order_by(StandardClause.order_no.asc(), StandardClause.id.asc())
+            .all()
+        )
+        clause_by_id = {clause.id: clause for clause in clauses}
 
         wb = Workbook()
         ws = wb.active
         ws.title = "Checkpoints"
 
-        ws.append(["序号", "clause_no", "rule_code", "rule_text", "confidence"])
+        ws.append(["序号", "标准名称", "条文编号", "条纹内容"])
         for idx, cp in enumerate(checkpoints, start=1):
             ws.append([
                 idx,
+                _sanitize_cell(standard.standard_name or ""),
                 _sanitize_cell(cp.clause_no or ""),
-                _sanitize_cell(cp.rule_code or ""),
-                _sanitize_cell(cp.rule_text or ""),
-                cp.confidence if cp.confidence is not None else "",
+                _sanitize_cell(_checkpoint_export_text(cp, clause_by_id)),
             ])
 
         safe_name = re.sub(r"[^\w一-鿿\-]", "_", standard.standard_name).strip("_")
-        filename = f"{safe_name}_checkpoints.xlsx"
+        export_date = datetime.now().strftime("%Y-%m-%d")
+        filename = f"{safe_name}_checkpoints_{export_date}.xlsx"
 
         buffer = io.BytesIO()
         wb.save(buffer)
@@ -882,6 +891,37 @@ def _dedupe_ints(values: list[int]) -> list[int]:
 
 def _sanitize_cell(value: str) -> str:
     return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
+
+
+def _checkpoint_export_text(
+    checkpoint: ReviewCheckpoint,
+    clause_by_id: dict[int, StandardClause],
+) -> str:
+    title_path = _clause_title_path(
+        clause_by_id.get(checkpoint.clause_id) if checkpoint.clause_id else None,
+        clause_by_id,
+    )
+    rule_text = checkpoint.rule_text or ""
+    return f"{title_path}：{rule_text}" if title_path else rule_text
+
+
+def _clause_title_path(
+    clause: StandardClause | None,
+    clause_by_id: dict[int, StandardClause],
+) -> str:
+    if not clause:
+        return ""
+
+    parts: list[str] = []
+    seen: set[int] = set()
+    current: StandardClause | None = clause
+    while current and current.id not in seen:
+        seen.add(current.id)
+        title = _as_string(current.title)
+        if title:
+            parts.append(title)
+        current = clause_by_id.get(current.parent_id) if current.parent_id else None
+    return "：".join(reversed(parts))
 
 
 def _parse_json(content: str) -> dict[str, Any] | list[dict[str, Any]]:

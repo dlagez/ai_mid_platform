@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated
 from urllib.parse import quote
 
@@ -214,7 +215,7 @@ async def export_review_checkpoints(
 ) -> StreamingResponse:
     buffer, filename = service.export_checkpoints_to_excel(db, standard_id=standard_id)
     encoded_name = quote(filename, safe="")
-    fallback_name = f"review_checkpoints_{standard_id}.xlsx"
+    fallback_name = f"review_checkpoints_{standard_id}_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
     return StreamingResponse(
         iter([buffer.getvalue()]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

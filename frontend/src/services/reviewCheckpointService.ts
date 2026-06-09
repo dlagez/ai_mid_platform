@@ -240,7 +240,7 @@ export const exportReviewCheckpoints = async (standardId: number, standardName: 
   });
 
   const contentDisposition = response.headers["content-disposition"];
-  let filename = `${standardName}_checkpoints.xlsx`;
+  let filename = `${standardName}_checkpoints_${new Date().toISOString().slice(0, 10)}.xlsx`;
   if (contentDisposition) {
     const match = contentDisposition.match(/filename\*=UTF-8''(.+?)(?:;|$)/);
     if (match) {
