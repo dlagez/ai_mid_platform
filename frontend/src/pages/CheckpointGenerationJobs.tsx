@@ -665,7 +665,7 @@ const ClauseCheckpointPanel = ({
   onQueue: () => void;
   onManualImport: () => void;
 }) => {
-  const canQueue = isAdmin && !checkpoints.length && !isInFlight(generationItem);
+  const canQueue = isAdmin && !isInFlight(generationItem);
   return (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
       <div>
@@ -684,7 +684,7 @@ const ClauseCheckpointPanel = ({
       </div>
       {canQueue ? (
         <Button type="primary" icon={<RobotOutlined />} loading={loading} onClick={onQueue}>
-          Add This Clause to Queue
+          {checkpoints.length ? "Regenerate This Clause" : "Add This Clause to Queue"}
         </Button>
       ) : null}
       {isAdmin ? (

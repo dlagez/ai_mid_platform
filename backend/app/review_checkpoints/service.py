@@ -629,23 +629,11 @@ class ReviewCheckpointService:
             self._archive_clause_checkpoints(db, clause)
             return [], "no checkpoint generated"
 
-        existing_rows = (
-            db.query(ReviewCheckpoint)
-            .filter(
-                ReviewCheckpoint.standard_id == clause.standard_id,
-                ReviewCheckpoint.clause_id == clause.id,
-                ReviewCheckpoint.status != "archived",
-            )
-            .order_by(ReviewCheckpoint.id.asc())
-            .all()
-        )
-        existing_by_text = {row.rule_text: row for row in existing_rows}
+        self._archive_clause_checkpoints(db, clause)
         checkpoint_ids: list[int] = []
-        used_ids: set[int] = set()
         now = datetime.utcnow()
         for index, payload in enumerate(checkpoint_payloads, start=1):
             rule_text = payload["rule_text"]
-            checkpoint = existing_by_text.get(rule_text)
             values = {
                 "rule_code": payload.get("rule_code") or self._default_code(clause, index),
                 "rule_text": rule_text,
@@ -658,19 +646,10 @@ class ReviewCheckpointService:
                 "status": "active",
                 "updated_at": now,
             }
-            if checkpoint:
-                for key, value in values.items():
-                    setattr(checkpoint, key, value)
-            else:
-                checkpoint = ReviewCheckpoint(**values)
-                db.add(checkpoint)
+            checkpoint = ReviewCheckpoint(**values)
+            db.add(checkpoint)
             db.flush()
             checkpoint_ids.append(checkpoint.id)
-            used_ids.add(checkpoint.id)
-        for checkpoint in existing_rows:
-            if checkpoint.id not in used_ids and checkpoint.status == "active":
-                checkpoint.status = "archived"
-                checkpoint.updated_at = now
         db.flush()
         return checkpoint_ids, None
 
@@ -680,7 +659,7 @@ class ReviewCheckpointService:
             .filter(
                 ReviewCheckpoint.standard_id == clause.standard_id,
                 ReviewCheckpoint.clause_id == clause.id,
-                ReviewCheckpoint.status == "active",
+                ReviewCheckpoint.status != "archived",
             )
             .update({"status": "archived", "updated_at": datetime.utcnow()}, synchronize_session=False)
         )
